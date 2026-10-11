@@ -360,6 +360,36 @@ app.post('/api/routers/:id/customers/test', auth, asyncRoute(async (req,res) => 
  });
  res.json(result);
 }));
+let zabbixHostCache = {at:0, hosts:[], error:''};
+async function getZabbixHostIndex() {
+ const now=Date.now();
+ if(now-zabbixHostCache.at<30000) return zabbixHostCache;
+ try {
+  const c=getZabbixConfig();
+  if(!c.url||!c.token) throw new Error('Zabbix belum dikonfigurasi');
+  const groups=await zabbixCall(c,'hostgroup.get',{output:['groupid','name'],filter:{name:[c.hostgroup]}});
+  if(!groups.length) throw new Error('Host group tidak ditemukan');
+  const hosts=await zabbixCall(c,'host.get',{output:['hostid','host','name','status'],groupids:groups.map(g=>g.groupid),selectInterfaces:['ip','dns','available','type']});
+  zabbixHostCache={at:now,hosts,error:''};
+ } catch(e) { zabbixHostCache={at:now,hosts:[],error:e.message||'Zabbix tidak tersedia'}; }
+ return zabbixHostCache;
+}
+function normalizeHostValue(v){return String(v||'').trim().toLowerCase();}
+function enrichCustomerWithZabbix(customer, hosts, error) {
+ const ip=normalizeHostValue(customer.address);
+ const name=normalizeHostValue(customer.name);
+ const matches=hosts.filter(h=>{
+  const ipMatch=(h.interfaces||[]).some(i=>normalizeHostValue(i.ip)===ip || normalizeHostValue(i.dns)===ip);
+  const nameMatch=[h.host,h.name].some(v=>normalizeHostValue(v)===name);
+  return ipMatch || nameMatch;
+ });
+ if(error) return {...customer,zabbixStatus:'unavailable',zabbixHost:'',zabbixHostName:'',zabbixAvailability:'unknown',zabbixMatch:'unavailable',zabbixNote:error};
+ if(matches.length===0) return {...customer,zabbixStatus:'unmatched',zabbixHost:'',zabbixHostName:'',zabbixAvailability:'unknown',zabbixMatch:'unmatched',zabbixNote:'Tidak ditemukan di Zabbix'};
+ if(matches.length>1) return {...customer,zabbixStatus:'duplicate',zabbixHost:'',zabbixHostName:'',zabbixAvailability:'unknown',zabbixMatch:'duplicate',zabbixNote:'Lebih dari satu host cocok'};
+ const h=matches[0], interfaces=h.interfaces||[];
+ const availability=interfaces.some(i=>i.available==='1')?'available':interfaces.some(i=>i.available==='2')?'unavailable':'unknown';
+ return {...customer,zabbixStatus:h.status==='0'?(availability==='available'?'available':availability==='unavailable'?'unavailable':'unknown'):'disabled',zabbixHost:h.host||'',zabbixHostName:h.name||h.host||'',zabbixAvailability:availability,zabbixMatch:'matched',zabbixNote:''};
+}
 app.get('/api/routers/:id/customers', auth, asyncRoute(async (req,res) => {
  const router = routerById(req.params.id);
  const data = await withRouter(router, async api => {
@@ -370,7 +400,8 @@ app.get('/api/routers/:id/customers', auth, asyncRoute(async (req,res) => {
    return {queues, isolated};
  });
  const addresses = new Set(data.isolated.map(x=>String(x.address||'').split('/')[0]));
- res.json(data.queues.map(q=>queueCustomer(q,router.id,router.name,addresses)));
+ const zbx=await getZabbixHostIndex();
+ res.json(data.queues.map(q=>enrichCustomerWithZabbix(queueCustomer(q,router.id,router.name,addresses),zbx.hosts,zbx.error)));
 }));
 app.get('/api/traffic/history', auth, (req,res) => {
  const routerId = Number(req.query.routerId);
