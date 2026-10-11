@@ -20,4 +20,5 @@ jobs:
         run: cp .env.example .env
       - name: Validate Compose configuration
         run: docker compose -f docker-compose.yml config -q
-      - name: Build Docker image\n        run: docker build --tag user-manager-ci .\n
+      - name: Build Docker image
+        run: docker build --tag user-manager-ci .
