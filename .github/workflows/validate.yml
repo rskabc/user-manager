@@ -16,5 +16,7 @@ jobs:
         run: node --check server.js
       - name: Validate deployment script syntax
         run: bash -n deploy.sh
+      - name: Prepare deployment environment
+        run: cp .env.example .env
       - name: Validate Compose configuration
         run: docker compose -f docker-compose.yml config -q
