@@ -14,6 +14,10 @@ jobs:
           node-version: 22
       - name: Validate JavaScript syntax
         run: node --check server.js
+      - name: Validate browser JavaScript syntax
+        run: |
+          node -e "const fs=require('fs');const h=fs.readFileSync('public/index.html','utf8');const m=h.match(/<script>([\\s\\S]*?)<\\/script>/);if(!m)throw Error('Inline application script not found');fs.writeFileSync('/tmp/user-manager-ui.js',m[1]);"
+          node --check /tmp/user-manager-ui.js
       - name: Validate deployment script syntax
         run: bash -n deploy.sh
       - name: Prepare deployment environment
