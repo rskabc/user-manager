@@ -39,6 +39,18 @@ CREATE TABLE IF NOT EXISTS isolation_history (
  FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_history_created ON isolation_history(created_at DESC);
+CREATE TABLE IF NOT EXISTS traffic_samples (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ router_id INTEGER NOT NULL,
+ queue_name TEXT NOT NULL,
+ target TEXT NOT NULL DEFAULT '',
+ rx_bps REAL NOT NULL DEFAULT 0,
+ tx_bps REAL NOT NULL DEFAULT 0,
+ sampled_at TEXT NOT NULL DEFAULT (datetime('now')),
+ FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_traffic_sampled ON traffic_samples(router_id, sampled_at);
+CREATE INDEX IF NOT EXISTS idx_traffic_queue ON traffic_samples(router_id, queue_name, sampled_at);
 `);
 
 function encrypt(value) {
@@ -172,42 +184,93 @@ app.delete('/api/routers/:id/queues/:queueId', auth, asyncRoute(async (req, res)
  res.json({ ok: true });
 }));
 
+async function applyIsolation(router, {name, address, reason = '', action}, operator) {
+ if (!validateIp(address)) throw Object.assign(new Error('Alamat IP pelanggan tidak valid.'), {status:400});
+ if (!['isolate','restore'].includes(action)) throw Object.assign(new Error('Action harus isolate atau restore.'), {status:400});
+ const cleanName = typeof name === 'string' ? name.trim().slice(0,100) : '';
+ if (!cleanName) throw Object.assign(new Error('Nama pelanggan wajib diisi.'), {status:400});
+ const cleanReason = typeof reason === 'string' ? reason.trim().slice(0,500) : '';
+ return withRouter(router, async api => {
+   const existing = await api.write('/ip/firewall/address-list/print', ['?list=' + ISOLATION_LIST, '?address=' + address]);
+   let changed = false;
+   if (action === 'isolate' && existing.length === 0) {
+     await api.write('/ip/firewall/address-list/add', ['=list=' + ISOLATION_LIST, '=address=' + address, '=comment=User Manager | ' + cleanName]);
+     changed = true;
+   } else if (action === 'restore' && existing.length > 0) {
+     for (const row of existing) await api.write('/ip/firewall/address-list/remove', ['=.id=' + row['.id']]);
+     changed = true;
+   }
+   const verify = await api.write('/ip/firewall/address-list/print', ['?list=' + ISOLATION_LIST, '?address=' + address]);
+   const success = action === 'isolate' ? verify.length > 0 : verify.length === 0;
+   if (!success) throw new Error('Verifikasi kondisi firewall gagal.');
+   if (changed) history(router.id, cleanName, address, action, cleanReason, operator, 'success');
+   return {ok:true, verified:true, changed, action, address};
+ });
+}
 app.post('/api/routers/:id/isolation', auth, asyncRoute(async (req, res) => {
  const router = routerById(req.params.id);
- const { name, address, reason = '', action } = req.body || {};
- if (!validateIp(address)) return res.status(400).json({ error: 'Masukkan alamat IP pelanggan yang valid.' });
- if (!['isolate', 'restore'].includes(action)) return res.status(400).json({ error: 'Action harus isolate atau restore.' });
- if (typeof name !== 'string' || name.length > 100 || typeof reason !== 'string' || reason.length > 500)
-   return res.status(400).json({ error: 'Nama pelanggan atau alasan tidak valid.' });
- const result = await withRouter(router, async api => {
-   const existing = await api.write('/ip/firewall/address-list/print', [
-     '?list=' + ISOLATION_LIST, '?address=' + address
-   ]);
-   if (action === 'isolate') {
-     if (!existing.length) await api.write('/ip/firewall/address-list/add', [
-       '=list=' + ISOLATION_LIST, '=address=' + address,
-       '=comment=User Manager | ' + name.trim().slice(0, 80)
-     ]);
-   } else if (existing.length) {
-     for (const row of existing) await api.write('/ip/firewall/address-list/remove', ['=.id=' + row['.id']]);
-   }
-   const verify = await api.write('/ip/firewall/address-list/print', [
-     '?list=' + ISOLATION_LIST, '?address=' + address
-   ]);
-   const success = action === 'isolate' ? verify.length > 0 : verify.length === 0;
-   if (!success) throw new Error('Perintah dikirim tetapi verifikasi kondisi firewall gagal.');
-   return { verified: true, changed };
- });
- if (result.changed) history(router.id, name.trim(), address, action, reason.trim(), req.user.username, 'success');
- res.json({ ok: true, result });
+ const result = await applyIsolation(router, req.body || {}, req.user.username);
+ res.json(result);
 }));
-
+app.post('/api/routers/:id/isolation/bulk', auth, asyncRoute(async (req, res) => {
+ const router = routerById(req.params.id);
+ const {customers, action, reason = ''} = req.body || {};
+ if (!Array.isArray(customers) || customers.length < 1 || customers.length > 100)
+   return res.status(400).json({error:'Pilih antara 1 sampai 100 pelanggan per proses.'});
+ if (!['isolate','restore'].includes(action)) return res.status(400).json({error:'Action tidak valid.'});
+ const results = [];
+ for (const c of customers) {
+   try {
+     const result = await applyIsolation(router, {name:c.name, address:c.address, reason, action}, req.user.username);
+     results.push({name:c.name, address:c.address, ok:true, changed:result.changed});
+   } catch (e) { results.push({name:c.name||'', address:c.address||'', ok:false, error:e.status===400?e.message:'Operasi gagal atau verifikasi router gagal.'}); }
+ }
+ res.json({ok:results.every(x=>x.ok), total:results.length, succeeded:results.filter(x=>x.ok).length, failed:results.filter(x=>!x.ok).length, results});
+}));
 app.get('/api/routers/:id/isolated', auth, asyncRoute(async (req, res) => {
  const router = routerById(req.params.id);
  const rows = await withRouter(router, api => api.write('/ip/firewall/address-list/print', ['?list=' + ISOLATION_LIST]));
  res.json(rows.map(row => ({ id: row['.id'], address: row.address || '', name: (row.comment || '').startsWith('User Manager | ') ? row.comment.slice('User Manager | '.length) : (row.comment || ''), comment: row.comment || '' })));
 }));
 
+function parseRate(value) {
+ if (typeof value !== 'string') return [0,0];
+ const parts = value.split('/');
+ const toBps = v => {
+   const n = Number(String(v || '0').trim());
+   return Number.isFinite(n) && n >= 0 ? n : 0;
+ };
+ return [toBps(parts[0]), toBps(parts[1])];
+}
+function queueCustomer(q, routerId, routerName, isolatedAddresses) {
+ const target = String(q.target || '').split(',')[0].trim().split('/')[0];
+ const isolated = isolatedAddresses.has(target);
+ const disabled = q.disabled === 'true' || q.disabled === true;
+ const [rxBps, txBps] = parseRate(q.rate || '0/0');
+ return {routerId, routerName, queueId:q['.id'] || '', name:q.name || '', target:q.target || '', address:target, maxLimit:q['max-limit'] || '', disabled, isolated, status:isolated?'isolated':disabled?'disabled':'active', rxBps, txBps, rate:q.rate || '0/0', bytes:q.bytes || ''};
+}
+app.get('/api/routers/:id/customers', auth, asyncRoute(async (req,res) => {
+ const router = routerById(req.params.id);
+ const data = await withRouter(router, async api => {
+   const [queues, isolated] = await Promise.all([
+     api.write('/queue/simple/print'),
+     api.write('/ip/firewall/address-list/print', ['?list='+ISOLATION_LIST])
+   ]);
+   return {queues, isolated};
+ });
+ const addresses = new Set(data.isolated.map(x=>String(x.address||'').split('/')[0]));
+ res.json(data.queues.map(q=>queueCustomer(q,router.id,router.name,addresses)));
+}));
+app.get('/api/traffic/history', auth, (req,res) => {
+ const routerId = Number(req.query.routerId);
+ const period = ['hour','day','month'].includes(req.query.period) ? req.query.period : 'hour';
+ const hours = period==='hour' ? 24 : period==='day' ? 24*7 : 24*30;
+ const where = routerId ? 'WHERE s.router_id=? AND s.sampled_at >= datetime(\'now\', ?)' : 'WHERE s.sampled_at >= datetime(\'now\', ?)';
+ const args = routerId ? [routerId, '-'+hours+' hours'] : ['-'+hours+' hours'];
+ const bucket = period==='hour' ? "strftime('%Y-%m-%d %H:00',s.sampled_at)" : period==='day' ? "strftime('%Y-%m-%d',s.sampled_at)" : "strftime('%Y-%m',s.sampled_at)";
+ const rows = db.prepare('SELECT '+bucket+' AS bucket, ROUND(SUM(rx_bps)/COUNT(*),0) AS rx_bps, ROUND(SUM(tx_bps)/COUNT(*),0) AS tx_bps, COUNT(*) AS samples FROM traffic_samples s '+where+' GROUP BY bucket ORDER BY bucket').all(...args);
+ res.json({period, points:rows});
+});
 app.get('/api/history', auth, (req, res) => {
  const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
  res.json(db.prepare(`SELECT h.id,h.router_id,r.name AS router_name,h.customer_name,h.address,h.action,h.reason,h.operator,h.result,h.created_at
@@ -241,4 +304,28 @@ app.use((err, req, res, next) => {
  res.status(status).json({ error: status >= 500 ? 'Operasi gagal. Periksa koneksi router dan log server.' : err.message });
 });
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+let sampling = false;
+async function sampleTraffic() {
+ if (sampling) return;
+ sampling = true;
+ try {
+   const allRouters = db.prepare('SELECT * FROM routers ORDER BY id').all();
+   for (const router of allRouters) {
+     try {
+       const queues = await withRouter(router, api => api.write('/queue/simple/print'));
+       const insert = db.prepare('INSERT INTO traffic_samples(router_id,queue_name,target,rx_bps,tx_bps,sampled_at) VALUES(?,?,?,?,?,datetime(\'now\'))');
+       const transaction = db.transaction(items => {
+         for (const q of items) {
+           const [rx,tx] = parseRate(q.rate || '0/0');
+           insert.run(router.id, q.name || '(tanpa nama)', q.target || '', rx, tx);
+         }
+       });
+       transaction(queues);
+     } catch (e) { console.warn('Traffic sampling router '+router.id+' gagal: '+e.message); }
+   }
+   db.prepare("DELETE FROM traffic_samples WHERE sampled_at < datetime('now','-31 days')").run();
+ } finally { sampling = false; }
+}
 app.listen(PORT, '0.0.0.0', () => console.log(`User Manager berjalan pada port ${PORT}`));
+setTimeout(() => sampleTraffic().catch(e=>console.warn('Sampling awal gagal:',e.message)), 5000);
+setInterval(() => sampleTraffic().catch(e=>console.warn('Sampling gagal:',e.message)), 60000);
