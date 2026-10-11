@@ -202,6 +202,12 @@ app.post('/api/routers/:id/isolation', auth, asyncRoute(async (req, res) => {
  res.json({ ok: true, result });
 }));
 
+app.get('/api/routers/:id/isolated', auth, asyncRoute(async (req, res) => {
+ const router = routerById(req.params.id);
+ const rows = await withRouter(router, api => api.write('/ip/firewall/address-list/print', ['?list=' + ISOLATION_LIST]));
+ res.json(rows.map(row => ({ id: row['.id'], address: row.address || '', name: (row.comment || '').replace(/^User Manager \\|\\s*/, ''), comment: row.comment || '' })));
+}));
+
 app.get('/api/history', auth, (req, res) => {
  const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
  res.json(db.prepare(`SELECT h.id,h.router_id,r.name AS router_name,h.customer_name,h.address,h.action,h.reason,h.operator,h.result,h.created_at
