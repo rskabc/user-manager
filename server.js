@@ -229,16 +229,24 @@ async function applyIsolation(router, {name, address, reason = '', action}, oper
  const cleanReason = typeof reason === 'string' ? reason.trim().slice(0,500) : '';
  return withRouter(router, async api => {
    const existing = await api.write('/ip/firewall/address-list/print', ['?list=' + ISOLATION_LIST, '?address=' + address]);
+   const isDisabled = row => row.disabled === 'true' || row.disabled === true;
+   const activeExisting = existing.filter(row => !isDisabled(row));
    let changed = false;
-   if (action === 'isolate' && existing.length === 0) {
-     await api.write('/ip/firewall/address-list/add', ['=list=' + ISOLATION_LIST, '=address=' + address, '=comment=User Manager | ' + cleanName]);
+   if (action === 'isolate' && activeExisting.length === 0) {
+     const disabledExisting = existing.filter(isDisabled);
+     if (disabledExisting.length) {
+       for (const row of disabledExisting) await api.write('/ip/firewall/address-list/set', ['=.id=' + row['.id'], '=disabled=no']);
+     } else {
+       await api.write('/ip/firewall/address-list/add', ['=list=' + ISOLATION_LIST, '=address=' + address, '=comment=User Manager | ' + cleanName]);
+     }
      changed = true;
    } else if (action === 'restore' && existing.length > 0) {
      for (const row of existing) await api.write('/ip/firewall/address-list/remove', ['=.id=' + row['.id']]);
      changed = true;
    }
    const verify = await api.write('/ip/firewall/address-list/print', ['?list=' + ISOLATION_LIST, '?address=' + address]);
-   const success = action === 'isolate' ? verify.length > 0 : verify.length === 0;
+   const activeVerify = verify.filter(row => !isDisabled(row));
+   const success = action === 'isolate' ? activeVerify.length > 0 : verify.length === 0;
    if (!success) throw new Error('Verifikasi kondisi firewall gagal.');
    if (changed) history(router.id, cleanName, address, action, cleanReason, operator, 'success');
    return {ok:true, verified:true, changed, action, address};
@@ -267,7 +275,7 @@ app.post('/api/routers/:id/isolation/bulk', auth, asyncRoute(async (req, res) =>
 app.get('/api/routers/:id/isolated', auth, asyncRoute(async (req, res) => {
  const router = routerById(req.params.id);
  const rows = await withRouter(router, api => api.write('/ip/firewall/address-list/print', ['?list=' + ISOLATION_LIST]));
- res.json(rows.map(row => ({ id: row['.id'], address: row.address || '', name: (row.comment || '').startsWith('User Manager | ') ? row.comment.slice('User Manager | '.length) : (row.comment || ''), comment: row.comment || '' })));
+ res.json(rows.filter(row => row.disabled !== 'true' && row.disabled !== true).map(row => ({ id: row['.id'], address: row.address || '', name: (row.comment || '').startsWith('User Manager | ') ? row.comment.slice('User Manager | '.length) : (row.comment || ''), comment: row.comment || '' })));
 }));
 
 function parseRate(value) {
