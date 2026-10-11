@@ -91,7 +91,7 @@ function auth(req, res, next) {
 function asyncRoute(fn) { return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next); }
 function validateIp(ip) {
  if (typeof ip !== 'string' || ip.length > 64) return false;
- const v4 = /^(25[0-5]|2[0-4]\\d|1?\\d?\\d)(\\.(25[0-5]|2[0-4]\\d|1?\\d?\\d)){3}$/.test(ip);
+ const v4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(ip);
  const v6 = /^[0-9a-fA-F:]+$/.test(ip) && ip.includes(':');
  return v4 || v6;
 }
@@ -238,7 +238,7 @@ function parseRate(value) {
  const parts = value.split('/');
  const toBps = v => {
    const n = Number(String(v || '0').trim());
-   return Number.isFinite(n) && n >= 0 ? n : 0;
+   return Number.isFinite(n) && n >= 0 ? n * 8 : 0;
  };
  return [toBps(parts[0]), toBps(parts[1])];
 }
