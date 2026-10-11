@@ -76,13 +76,13 @@
   <section id="page-customers" class="section">
    <div class="page-head"><div><h1>Status Pelanggan</h1><p>Status aktual queue dan firewall, diperbarui otomatis setiap 15 detik.</p></div><button class="btn btn-primary" id="refreshCustomers">↻ Refresh</button></div>
    <div class="cards">
-    <div class="stat"><div class="stat-top">Pelanggan terdeteksi</div><div class="stat-num" id="customerTotal">0</div><div class="stat-foot">Simple Queue di router terpilih</div></div>
+    <div class="stat"><div class="stat-top">Pelanggan terdeteksi</div><div class="stat-num" id="customerTotal">0</div><div class="stat-foot">Gabungan seluruh router atau router terpilih</div></div>
     <div class="stat"><div class="stat-top">Aktif</div><div class="stat-num" id="customerActive">0</div><div class="stat-foot">Queue aktif dan tidak terisolasi</div></div>
     <div class="stat"><div class="stat-top">Terisolasi</div><div class="stat-num" id="customerIsolated">0</div><div class="stat-foot">Ada di address-list isolasi aplikasi</div></div>
     <div class="stat"><div class="stat-top">Nonaktif</div><div class="stat-num" id="customerDisabled">0</div><div class="stat-foot">Simple Queue dinonaktifkan</div></div>
    </div>
    <div class="panel">
-    <div class="panel-head"><div><h2>Daftar pelanggan</h2><p>Pilih pelanggan untuk isolasi atau pemulihan massal.</p></div><div class="toolbar"><select id="customerRouter"><option value="">Pilih router</option></select><input id="customerSearch" type="search" placeholder="Cari nama, IP, username, queue…" aria-label="Cari pelanggan"><button class="btn btn-plain" id="selectVisible">Pilih hasil</button></div></div>
+    <div class="panel-head"><div><h2>Daftar pelanggan</h2><p>Pilih pelanggan untuk isolasi atau pemulihan massal.</p></div><div class="toolbar"><select id="customerRouter"><option value="">Semua router</option></select><input id="customerSearch" type="search" placeholder="Cari nama, IP, username, queue…" aria-label="Cari pelanggan"><button class="btn btn-plain" id="selectVisible">Pilih hasil</button></div></div>
     <div class="panel-head"><div class="toolbar"><span id="customerSelectedCount">0 dipilih</span><input id="bulkReason" placeholder="Alasan tindakan (opsional)"><button class="btn btn-danger" id="bulkIsolate">⊘ Isolasi pilihan</button><button class="btn btn-soft" id="bulkRestore">Pulihkan pilihan</button></div></div>
     <div class="table-wrap"><table><thead><tr><th><input type="checkbox" id="selectAllCustomers" aria-label="Pilih semua"></th><th>Pelanggan / Queue</th><th>IP / Target</th><th>Status</th><th>Upload</th><th>Download</th><th>Limit</th><th>Aksi</th></tr></thead><tbody id="customerRows"><tr><td colspan="8" class="empty">Pilih router untuk memuat pelanggan.</td></tr></tbody></table></div>
    </div>
@@ -173,28 +173,39 @@ function renderCustomers(){
 }
 async function loadCustomers(){
  const id=$('#customerRouter').value;
- if(!id){customerData=[];renderCustomers();$('#customerRows').innerHTML='<tr><td colspan="8" class="empty">Pilih router untuk memuat pelanggan.</td></tr>';return;}
- try{customerData=await api('/routers/'+id+'/customers');selectedCustomers.clear();renderCustomers();}
- catch(e){customerData=[];renderCustomers();$('#customerRows').innerHTML='<tr><td colspan="8" class="empty">'+esc(e.message)+' — status tidak diketahui.</td></tr>';}
+ try{
+  if(id){customerData=await api('/routers/'+id+'/customers');}
+  else{
+   const results=await Promise.allSettled(routers.map(async r=>({router:r,customers:await api('/routers/'+r.id+'/customers')})));
+   customerData=results.filter(x=>x.status==='fulfilled').flatMap(x=>x.value.customers);
+   const failed=results.filter(x=>x.status==='rejected').length;
+   if(!customerData.length&&failed)throw new Error('Tidak ada router yang berhasil dihubungi. Periksa koneksi API MikroTik.');
+   if(failed)toast(failed+' router gagal diperiksa; data router lain tetap ditampilkan.',true);
+  }
+  selectedCustomers.clear();renderCustomers();
+ }catch(e){customerData=[];renderCustomers();$('#customerRows').innerHTML='<tr><td colspan="8" class="empty">'+esc(e.message)+' — status tidak diketahui.</td></tr>';}
 }
 $('#customerRouter').onchange=loadCustomers;$('#customerSearch').oninput=renderCustomers;$('#refreshCustomers').onclick=()=>loadCustomers().then(()=>toast('Status pelanggan diperbarui.'));
 $('#selectVisible').onclick=()=>{visibleCustomers().forEach(c=>selectedCustomers.add(c.address||c.queueId));renderCustomers();};
 $('#selectAllCustomers').onchange=e=>{if(e.target.checked)visibleCustomers().forEach(c=>selectedCustomers.add(c.address||c.queueId));else visibleCustomers().forEach(c=>selectedCustomers.delete(c.address||c.queueId));renderCustomers();};
 window.customerAction=async(address,name,action)=>{
- const id=$('#customerRouter').value;if(!address){toast('Queue ini tidak memiliki IP target yang dapat diisolasi.',true);return;}
+ const selectedId=$('#customerRouter').value;const customer=customerData.find(c=>c.address===address&&c.name===name&&(!selectedId||String(c.routerId)===String(selectedId)));const id=selectedId||customer?.routerId;
+ if(!id){toast('Router pelanggan tidak ditemukan.',true);return;}if(!address){toast('Queue ini tidak memiliki IP target yang dapat diisolasi.',true);return;}
  if(!confirm((action==='isolate'?'Isolasi':'Pulihkan')+' pelanggan '+name+' ('+address+')?'))return;
  try{await api('/routers/'+id+'/isolation',{method:'POST',body:JSON.stringify({name,address,action,reason:$('#bulkReason').value})});toast('Aksi berhasil diverifikasi.');await Promise.allSettled([loadCustomers(),loadDashboard(),loadIsolations(),loadHistory()]);}catch(e){toast(e.message,true);}
 };
 async function bulkCustomerAction(action){
- const id=$('#customerRouter').value;if(!id){toast('Pilih router terlebih dahulu.',true);return;}
  const chosen=customerData.filter(c=>selectedCustomers.has(c.address||c.queueId));
  if(!chosen.length){toast('Pilih minimal satu pelanggan.',true);return;}
  const valid=chosen.filter(c=>c.address);if(valid.length!==chosen.length){toast('Sebagian queue tidak memiliki target IP yang valid dan akan dilewati.',true);}
- const customers=valid.map(c=>({name:c.name||c.address,address:c.address}));
- if(!customers.length)return;
- if(!confirm((action==='isolate'?'Isolasi':'Pulihkan')+' '+customers.length+' pelanggan sekaligus?'))return;
- try{const d=await api('/routers/'+id+'/isolation/bulk',{method:'POST',body:JSON.stringify({customers,action,reason:$('#bulkReason').value})});toast('Selesai: '+d.succeeded+' berhasil, '+d.failed+' gagal.',d.failed>0);await Promise.allSettled([loadCustomers(),loadDashboard(),loadIsolations(),loadHistory()]);}
- catch(e){toast(e.message,true);}
+ if(!valid.length)return;
+ if(!confirm((action==='isolate'?'Isolasi':'Pulihkan')+' '+valid.length+' pelanggan sekaligus?'))return;
+ try{
+  const groups=new Map();valid.forEach(c=>{const k=String(c.routerId);if(!groups.has(k))groups.set(k,[]);groups.get(k).push({name:c.name||c.address,address:c.address});});
+  const results=await Promise.allSettled([...groups].map(([id,customers])=>api('/routers/'+id+'/isolation/bulk',{method:'POST',body:JSON.stringify({customers,action,reason:$('#bulkReason').value})})));
+  const succeeded=results.filter(x=>x.status==='fulfilled').reduce((n,x)=>n+(x.value.succeeded||0),0);const failed=valid.length-succeeded;
+  toast('Selesai: '+succeeded+' berhasil, '+failed+' gagal.',failed>0);await Promise.allSettled([loadCustomers(),loadDashboard(),loadIsolations(),loadHistory()]);
+ }catch(e){toast(e.message,true);}
 }
 $('#bulkIsolate').onclick=()=>bulkCustomerAction('isolate');$('#bulkRestore').onclick=()=>bulkCustomerAction('restore');
 function drawTrafficChart(points){
