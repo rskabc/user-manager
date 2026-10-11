@@ -1,0 +1,15 @@
+{
+  "id": "/",
+  "name": "MikroTik User Manager",
+  "short_name": "User Manager",
+  "description": "Manajemen pelanggan, queue, bandwidth, dan isolasi MikroTik",
+  "lang": "id-ID",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f6fa",
+  "theme_color": "#101b32",
+  "icons": [
+    {"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}
+  ]
+}
