@@ -12,7 +12,7 @@ services:
       PORT: 3000
       DATA_DIR: /data
     ports:
-      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-8300}:3000"
+      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-8224}:3000"
     volumes:
       - user_manager_data:/data
     networks:
