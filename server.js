@@ -294,6 +294,18 @@ function queueCustomer(q, routerId, routerName, isolatedAddresses) {
  const [rxBps, txBps] = parseRate(q.rate || '0/0');
  return {routerId, routerName, queueId:q['.id'] || '', name:q.name || '', target:q.target || '', address:target, maxLimit:q['max-limit'] || '', disabled, isolated, status:isolated?'isolated':disabled?'disabled':'active', rxBps, txBps, rate:q.rate || '0/0', bytes:q.bytes || ''};
 }
+app.post('/api/routers/:id/customers/test', auth, asyncRoute(async (req,res) => {
+ const router = routerById(req.params.id);
+ const address = String((req.body||{}).address||'').trim().split('/')[0];
+ if (!address || !/^[0-9a-fA-F:.]+$/.test(address)) return res.status(400).json({error:'Alamat IP pelanggan tidak valid.'});
+ const result = await withRouter(router, async api => {
+   const rows = await api.write('/ping', ['=address='+address, '=count=3', '=interval=300ms']);
+   const received = rows.reduce((n,row)=>n+Number(row.received||0),0);
+   const sent = rows.reduce((n,row)=>n+Number(row.sent||0),0);
+   return {address,connected:received>0,sent:sent||3,received,loss:received>0?Math.max(0,100-Math.round(received/Math.max(sent,3)*100)):100,status:received>0?'connected':'disconnected',detail:received>0?'Ping berhasil':'Tidak ada balasan ping (timeout)'};
+ });
+ res.json(result);
+}));
 app.get('/api/routers/:id/customers', auth, asyncRoute(async (req,res) => {
  const router = routerById(req.params.id);
  const data = await withRouter(router, async api => {
