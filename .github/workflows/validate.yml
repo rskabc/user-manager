@@ -1,0 +1,21 @@
+name: Validate application
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+jobs:
+  syntax-and-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Validate JavaScript syntax
+        run: node --check server.js
+      - name: Validate deployment script syntax
+        run: bash -n deploy.sh
+      - name: Validate Compose configuration
+        run: docker compose -f docker-compose.yml config -q
