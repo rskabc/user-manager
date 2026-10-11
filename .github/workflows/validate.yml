@@ -12,7 +12,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
       - name: Validate JavaScript syntax
         run: node --check server.js
       - name: Validate deployment script syntax
