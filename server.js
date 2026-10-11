@@ -378,11 +378,10 @@ function normalizeHostValue(v){return String(v||'').trim().toLowerCase();}
 function enrichCustomerWithZabbix(customer, hosts, error) {
  const ip=normalizeHostValue(customer.address);
  const name=normalizeHostValue(customer.name);
- const matches=hosts.filter(h=>{
-  const ipMatch=(h.interfaces||[]).some(i=>normalizeHostValue(i.ip)===ip || normalizeHostValue(i.dns)===ip);
-  const nameMatch=[h.host,h.name].some(v=>normalizeHostValue(v)===name);
-  return ipMatch || nameMatch;
- });
+ // Queue name and Zabbix technical/display hostname are expected to match exactly.
+ // Prefer an exact hostname match; use IP only when no hostname match exists.
+ const exactNameMatches=hosts.filter(h=>[h.host,h.name].some(v=>normalizeHostValue(v)===name));
+ const matches=exactNameMatches.length ? exactNameMatches : hosts.filter(h=>(h.interfaces||[]).some(i=>normalizeHostValue(i.ip)===ip || normalizeHostValue(i.dns)===ip));
  if(error) return {...customer,zabbixStatus:'unavailable',zabbixHost:'',zabbixHostName:'',zabbixAvailability:'unknown',zabbixMatch:'unavailable',zabbixNote:error};
  if(matches.length===0) return {...customer,zabbixStatus:'unmatched',zabbixHost:'',zabbixHostName:'',zabbixAvailability:'unknown',zabbixMatch:'unmatched',zabbixNote:'Tidak ditemukan di Zabbix'};
  if(matches.length>1) return {...customer,zabbixStatus:'duplicate',zabbixHost:'',zabbixHostName:'',zabbixAvailability:'unknown',zabbixMatch:'duplicate',zabbixNote:'Lebih dari satu host cocok'};
