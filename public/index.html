@@ -29,6 +29,41 @@
 .queue-table .actions{gap:5px}.queue-table .actions .btn{padding:6px 8px;min-height:29px}
 @media(max-width:900px){.queue-table{min-width:850px}.queue-table .q-col-name{width:18%}.queue-table .q-col-target{width:24%}.queue-table .q-col-limit{width:15%}.queue-table .q-col-bytes{width:17%}.queue-table .q-col-status{width:9%}.queue-table .q-col-actions{width:17%}}
 @media(max-width:720px){.queue-table-wrap{overflow:visible;margin:0;width:100%}.queue-table{min-width:0;table-layout:auto}.queue-table colgroup,.queue-table thead{display:none}.queue-table,.queue-table tbody{display:block;width:100%}.queue-table tbody tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px 14px;background:#fff;border:1px solid var(--line);border-radius:11px;padding:13px;margin:0 0 10px;min-width:0}.queue-table tbody td{display:block;height:auto;min-width:0;border:0;padding:0;font-size:12px;overflow-wrap:anywhere}.queue-table tbody td:before{content:attr(data-label);display:block;color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.45px;margin-bottom:4px}.queue-table tbody td:first-child,.queue-table tbody td:nth-child(2){grid-column:1/-1}.queue-table tbody td:first-child .queue-name strong{font-size:13px;-webkit-line-clamp:2}.queue-table tbody td:nth-child(2) .queue-target{-webkit-line-clamp:3}.queue-table tbody td:nth-child(6){grid-column:1/-1}.queue-table .actions{display:flex;flex-wrap:wrap}.queue-table .actions .btn{flex:1 1 auto}.queue-table tbody td.empty{grid-column:1/-1;text-align:center;padding:18px 10px}.queue-table tbody td.empty:before{display:none}}
+
+/* Global table polish: compact, aligned, and page-fit */
+.panel{min-width:0}
+.table-wrap{width:100%;max-width:100%;min-width:0;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+.table-wrap table{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed;min-width:0}
+.table-wrap th{font-size:10px;letter-spacing:.45px;text-transform:uppercase;line-height:1.35;white-space:normal;padding:10px 11px}
+.table-wrap td{font-size:12px;line-height:1.45;padding:10px 11px;vertical-align:middle;overflow-wrap:anywhere;word-break:normal}
+.table-wrap td strong{font-size:12px;line-height:1.4}
+.table-wrap td small{display:block;font-size:10px;line-height:1.45;color:var(--muted);margin-top:3px}
+.table-wrap tbody tr:last-child td{border-bottom:0}
+.table-wrap .actions{display:flex;flex-wrap:wrap;gap:5px}
+.table-wrap .actions .btn{font-size:11px;padding:6px 8px;min-height:29px;white-space:normal}
+.table-wrap td .badge{white-space:nowrap;font-size:10px}
+.queue-table{min-width:0}
+.queue-table .q-col-name{width:17%}.queue-table .q-col-target{width:25%}.queue-table .q-col-limit{width:15%}.queue-table .q-col-bytes{width:17%}.queue-table .q-col-status{width:9%}.queue-table .q-col-actions{width:17%}
+.queue-table th,.queue-table td{padding:10px 9px}
+.queue-table td{height:auto;min-height:58px}
+.queue-bytes{white-space:normal;overflow-wrap:anywhere;font-size:11px}
+.queue-bytes span{white-space:nowrap}
+.customer-table{min-width:0}
+.customer-table th:first-child,.customer-table td:first-child{width:34px;text-align:center;padding-left:7px;padding-right:7px}
+.customer-table th:nth-child(2){width:18%}.customer-table th:nth-child(3){width:20%}.customer-table th:nth-child(4){width:11%}.customer-table th:nth-child(5),.customer-table th:nth-child(6){width:10%}.customer-table th:nth-child(7){width:12%}.customer-table th:nth-child(8){width:15%}
+.customer-table td:nth-child(5),.customer-table td:nth-child(6){font-variant-numeric:tabular-nums;white-space:nowrap}
+@media(max-width:1050px){.table-wrap th,.table-wrap td{padding:8px 7px}.table-wrap td{font-size:11px}.queue-table .q-col-name{width:17%}.queue-table .q-col-target{width:23%}.queue-table .q-col-limit{width:14%}.queue-table .q-col-bytes{width:17%}.queue-table .q-col-status{width:9%}.queue-table .q-col-actions{width:20%}}
+@media(max-width:720px){
+ .table-wrap{overflow-x:auto}
+ .table-wrap table{table-layout:auto}
+ .queue-table-wrap{overflow:visible}
+ .queue-table{table-layout:auto}
+ .queue-table tbody tr{padding:11px;gap:9px 12px}
+ .customer-table{min-width:760px!important}
+ .panel-head{gap:10px;flex-wrap:wrap}
+ .panel-head .toolbar{max-width:100%;flex-wrap:wrap}
+ .panel-head .toolbar select{max-width:58vw}
+}
 </style>
 </head>
 <body>
@@ -84,7 +119,7 @@
    <div class="panel">
     <div class="panel-head"><div><h2>Daftar pelanggan</h2><p>Pilih pelanggan untuk isolasi atau pemulihan massal.</p></div><div class="toolbar"><select id="customerRouter"><option value="">Semua router</option></select><input id="customerSearch" type="search" placeholder="Cari nama, IP, username, queue…" aria-label="Cari pelanggan"><button class="btn btn-plain" id="selectVisible">Pilih hasil</button></div></div>
     <div class="panel-head"><div class="toolbar"><span id="customerSelectedCount">0 dipilih</span><input id="bulkReason" placeholder="Alasan tindakan (opsional)"><button class="btn btn-danger" id="bulkIsolate">⊘ Isolasi pilihan</button><button class="btn btn-soft" id="bulkRestore">Pulihkan pilihan</button></div></div>
-    <div class="table-wrap"><table><thead><tr><th><input type="checkbox" id="selectAllCustomers" aria-label="Pilih semua"></th><th>Pelanggan / Queue</th><th>IP / Target</th><th>Status</th><th>Upload</th><th>Download</th><th>Limit</th><th>Aksi</th></tr></thead><tbody id="customerRows"><tr><td colspan="8" class="empty">Pilih router untuk memuat pelanggan.</td></tr></tbody></table></div>
+    <div class="table-wrap"><table class="customer-table"><thead><tr><th><input type="checkbox" id="selectAllCustomers" aria-label="Pilih semua"></th><th>Pelanggan / Queue</th><th>IP / Target</th><th>Status</th><th>Upload</th><th>Download</th><th>Limit</th><th>Aksi</th></tr></thead><tbody id="customerRows"><tr><td colspan="8" class="empty">Pilih router untuk memuat pelanggan.</td></tr></tbody></table></div>
    </div>
    <p class="hero-note">Status “Gangguan / Tidak diketahui” ditampilkan saat router tidak dapat diperiksa. Aplikasi tidak menyimpulkan pelanggan offline hanya dari tidak adanya trafik.</p>
   </section>
@@ -143,7 +178,7 @@ $('#refreshRouters').onclick=()=>loadRouters().then(()=>toast('Daftar router dip
 window.testRouter=async id=>{const el=$('#routerState-'+id);if(el){el.className='badge badge-amber';el.textContent='Menguji…'}try{const d=await api('/routers/'+id+'/test',{method:'POST',body:'{}'});if(el){el.className='badge badge-green';el.textContent='Online'}toast('Koneksi berhasil · RouterOS '+(d.resource.version||'versi tidak diketahui'));}catch(e){if(el){el.className='badge badge-red';el.textContent='Gagal'}toast(e.message,true)}};
 window.deleteRouter=async id=>{if(!confirm('Hapus konfigurasi router ini? Riwayat terkait juga akan dihapus. Tidak ada konfigurasi MikroTik yang dihapus.'))return;try{await api('/routers/'+id,{method:'DELETE'});await loadRouters();toast('Konfigurasi router dihapus.')}catch(e){toast(e.message,true)}};
 $('#queueRouter').onchange=loadQueues;$('#refreshQueues').onclick=loadQueues;
-function formatBytesValue(value){const n=Number(value);if(!Number.isFinite(n)||n<0)return '—';if(n===0)return '0 B';const units=['B','KiB','MiB','GiB','TiB','PiB'];let v=n,i=0;while(v>=1024&&i<units.length-1){v/=1024;i++}return v.toFixed(i===0||v>=100?0:v>=10?1:2)+' '+units[i]}
+function formatBytesValue(value){const n=Number(value);if(!Number.isFinite(n)||n<0)return '—';if(n===0)return '0 B';const units=['B','KB','MB','GB','TB','PB'];let v=n,i=0;while(v>=1000&&i<units.length-1){v/=1000;i++}return v.toFixed(i===0||v>=100?0:v>=10?1:2)+' '+units[i]}
 function formatQueueBytes(value){if(value===null||value===undefined||value==='')return {up:'—',down:'—'};const parts=String(value).split('/');return {up:formatBytesValue(parts[0]),down:formatBytesValue(parts.length>1?parts[1]:parts[0])}}
 function formatQueueTarget(value){const targets=String(value||'—').split(',').map(v=>v.trim()).filter(Boolean);if(targets.length<=2)return '<span class="queue-target" title="'+esc(targets.join(', '))+'">'+esc(targets.join(', ')||'—')+'</span>';return '<span class="queue-target" title="'+esc(targets.join(', '))+'">'+esc(targets.slice(0,2).join(', '))+' <span class="queue-more">+'+(targets.length-2)+' lainnya</span></span>'}
 async function loadQueues(){const id=$('#queueRouter').value;if(!id){$('#queueRows').innerHTML='<tr><td colspan="6" class="empty">Pilih router untuk melihat queue.</td></tr>';return}try{const allQueues=await api('/routers/'+id+'/queues');currentQueues=allQueues.filter(q=>!q.isParent);$('#queueRows').innerHTML=currentQueues.length?currentQueues.map(q=>{const bytes=formatQueueBytes(q.bytes);return '<tr><td data-label="Nama pelanggan"><div class="queue-name"><strong title="'+esc(q.name)+'">'+esc(q.name||'(tanpa nama)')+'</strong><small>ID: '+esc(q.id)+'</small></div></td><td data-label="Target / IP">'+formatQueueTarget(q.target)+'</td><td data-label="Max limit"><span class="queue-limit" title="'+esc(q.maxLimit||'—')+'">'+esc(q.maxLimit||'—')+'</span></td><td data-label="Traffic usage"><div class="queue-bytes"><span><b>↑</b> '+esc(bytes.up)+'</span><span><b>↓</b> '+esc(bytes.down)+'</span></div></td><td data-label="Status">'+(q.disabled?'<span class="badge badge-gray">Disabled</span>':'<span class="badge badge-green">Aktif</span>')+'</td><td data-label="Aksi"><div class="actions"><button class="btn btn-soft" onclick="editQueue(\''+esc(id)+'\',\''+esc(q.id)+'\')">Edit</button><button class="btn btn-plain" onclick="toggleQueue(\''+esc(id)+'\',\''+esc(q.id)+'\','+(!q.disabled)+')">'+(q.disabled?'Aktifkan':'Nonaktifkan')+'</button><button class="btn btn-danger" onclick="deleteQueue(\''+esc(id)+'\',\''+esc(q.id)+'\')">Hapus</button></div></td></tr>'}).join(''):'<tr><td colspan="6" class="empty">Tidak ada simple queue pada router ini.</td></tr>';}catch(e){$('#queueRows').innerHTML='<tr><td colspan="6" class="empty">'+esc(e.message)+'</td></tr>';}}
