@@ -183,8 +183,12 @@ app.post('/api/routers/:id/test', auth, asyncRoute(async (req, res) => {
 app.get('/api/routers/:id/queues', auth, asyncRoute(async (req, res) => {
  const router = routerById(req.params.id);
  const rows = await withRouter(router, api => api.write('/queue/simple/print'));
+ // Identify parent queues by checking whether another Simple Queue names them as its parent.
+ // Keep the full RouterOS data intact; the UI can omit parent-only summary rows.
+ const parentNames = new Set(rows.map(q => String(q.parent || '').trim()).filter(p => p && p !== 'none'));
  res.json(rows.map(q => ({
    id: q['.id'], name: q.name || '', target: q.target || '',
+   parent: q.parent || 'none', isParent: parentNames.has(String(q.name || '').trim()),
    maxLimit: q['max-limit'] || '', disabled: q.disabled === 'true',
    bytes: q.bytes || '', packets: q.packets || '', rate: q['rate'] || ''
  })));
