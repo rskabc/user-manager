@@ -375,6 +375,7 @@ async function syncRouter(router) {
  const prior = db.prepare('SELECT entity_key,entity_type,state_json FROM sync_snapshots WHERE router_id=?').all(router.id);
  const priorMap = new Map(prior.map(row=>[row.entity_type+':'+row.entity_key,row]));
  const upsert = db.prepare("INSERT INTO sync_snapshots(router_id,entity_key,entity_type,state_json,updated_at) VALUES(?,?,?,?,datetime('now')) ON CONFLICT(router_id,entity_key,entity_type) DO UPDATE SET state_json=excluded.state_json,updated_at=datetime('now')");
+ db.prepare("INSERT INTO router_sync_status(router_id,status,last_sync_at,last_error,changes_detected) VALUES(?,'online',datetime('now'),NULL,0) ON CONFLICT(router_id) DO UPDATE SET status='online',last_sync_at=datetime('now'),last_error=NULL").run(router.id);
  const transaction = db.transaction(() => {
    // First successful scan seeds the baseline and intentionally creates no false change events.
    for (const item of current.values()) {
