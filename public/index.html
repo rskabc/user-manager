@@ -64,6 +64,7 @@
  .panel-head .toolbar{max-width:100%;flex-wrap:wrap}
  .panel-head .toolbar select{max-width:58vw}
 }
+.customer-connection{display:flex;flex-direction:column;align-items:flex-start;gap:4px}.customer-connection small{font-size:10px;line-height:1.3;color:var(--muted);overflow-wrap:anywhere}
 </style>
 </head>
 <body>
@@ -193,6 +194,8 @@ async function loadHistory(){try{lastHistory=await api('/history?limit=200');con
 $('#refreshHistory').onclick=loadHistory;$('#historyAction').onchange=loadHistory;
 
 let customerData=[], selectedCustomers=new Set(), trafficChartData=[];
+ const customerTests={};
+ async function testCustomer(c){const key=String(c.routerId)+'|'+c.address;if(!c.address){toast('Pelanggan tidak memiliki alamat IP yang dapat dites.',true);return;}customerTests[key]={loading:true};renderCustomers();try{const d=await api('/routers/'+c.routerId+'/customers/test',{method:'POST',body:JSON.stringify({address:c.address})});customerTests[key]={loading:false,connected:!!d.connected,detail:d.detail+' · '+d.received+'/'+d.sent+' balasan'};}catch(e){customerTests[key]={loading:false,connected:false,detail:e.message||'Pengujian gagal'};}renderCustomers();}
 function formatRate(bits){if(!Number.isFinite(Number(bits))||Number(bits)<=0)return '0 Mbps';const n=Number(bits)/1000000;return (n>=10?n.toFixed(1):n.toFixed(2))+' Mbps';}
 function customerBadge(c){if(c.status==='isolated')return '<span class="badge badge-red">Terisolasi</span>';if(c.status==='disabled')return '<span class="badge badge-gray">Nonaktif</span>';return '<span class="badge badge-green">Aktif</span>';}
 function visibleCustomers(){const q=($('#customerSearch').value||'').trim().toLowerCase();return customerData.filter(c=>!q||[c.name,c.target,c.address,c.queueId,c.routerName].some(v=>String(v||'').toLowerCase().includes(q)));}
@@ -203,7 +206,8 @@ function renderCustomers(){
  $('#customerSelectedCount').textContent=selectedCustomers.size+' dipilih';
  if(!visible.length){rows.innerHTML='<tr><td colspan="8" class="empty">Tidak ada pelanggan yang cocok atau pilih router.</td></tr>';return;}
  rows.innerHTML=visible.map((c,index)=>'<tr><td><input type="checkbox" class="customer-check" data-key="'+esc(c.address||c.queueId)+'" '+(selectedCustomers.has(c.address||c.queueId)?'checked':'')+' aria-label="Pilih pelanggan"></td><td><strong>'+esc(c.name||'(tanpa nama)')+'</strong><small>'+esc(c.routerName)+' · '+esc(c.queueId)+'</small></td><td>'+esc(c.target||'—')+'</td><td>'+customerBadge(c)+'</td><td>'+formatRate(c.rxBps)+'</td><td>'+formatRate(c.txBps)+'</td><td>'+esc(c.maxLimit||'—')+'</td><td><div class="actions"><button class="btn '+(c.status==='isolated'?'btn-soft':'btn-danger')+'" data-customer-action="'+(c.status==='isolated'?'restore':'isolate')+'" data-customer-index="'+index+'">'+(c.status==='isolated'?'Pulihkan':'Isolasi')+'</button></div></td></tr>').join('');
- $$('#customerRows [data-customer-action]').forEach(el=>el.onclick=()=>{const c=visible[Number(el.dataset.customerIndex)];if(c)customerAction(c.address,c.name,el.dataset.customerAction);});
+ $('#customerRows [data-customer-action]').forEach(el=>el.onclick=()=>{const c=visible[Number(el.dataset.customerIndex)];if(c)customerAction(c.address,c.name,el.dataset.customerAction);});
+  $('#customerRows [data-test-customer]').forEach(el=>el.onclick=()=>{const c=visible[Number(el.dataset.testCustomer)];if(c)testCustomer(c);});
  $('.customer-check').forEach(el=>el.onchange=()=>{const key=el.dataset.key;if(el.checked)selectedCustomers.add(key);else selectedCustomers.delete(key);$('#customerSelectedCount').textContent=selectedCustomers.size+' dipilih';});
 }
 async function loadCustomers(){
