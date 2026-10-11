@@ -13,7 +13,7 @@ const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const JWT_SECRET = process.env.JWT_SECRET;
 const ENCRYPTION_KEY = process.env.APP_ENCRYPTION_KEY;
-const ISOLATION_LIST = process.env.MIKROTIK_ISOLATION_LIST || 'USER_MANAGER_ISOLATED';
+const ISOLATION_LIST = process.env.MIKROTIK_ISOLATION_LIST || 'blocked_ip';
 const TOKEN_TTL = process.env.TOKEN_TTL || '12h';
 
 if (!JWT_SECRET || JWT_SECRET.length < 32) throw new Error('JWT_SECRET wajib diisi minimal 32 karakter.');
@@ -51,6 +51,39 @@ CREATE TABLE IF NOT EXISTS traffic_samples (
 );
 CREATE INDEX IF NOT EXISTS idx_traffic_sampled ON traffic_samples(router_id, sampled_at);
 CREATE INDEX IF NOT EXISTS idx_traffic_queue ON traffic_samples(router_id, queue_name, sampled_at);
+CREATE TABLE IF NOT EXISTS sync_snapshots (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ router_id INTEGER NOT NULL,
+ entity_key TEXT NOT NULL,
+ entity_type TEXT NOT NULL,
+ state_json TEXT NOT NULL,
+ updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+ UNIQUE(router_id, entity_key, entity_type),
+ FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS sync_changes (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ router_id INTEGER NOT NULL,
+ entity_type TEXT NOT NULL,
+ entity_key TEXT NOT NULL,
+ customer_name TEXT NOT NULL DEFAULT '',
+ address TEXT NOT NULL DEFAULT '',
+ change_type TEXT NOT NULL,
+ old_value TEXT,
+ new_value TEXT,
+ source TEXT NOT NULL DEFAULT 'external_or_unattributed',
+ detected_at TEXT NOT NULL DEFAULT (datetime('now')),
+ FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_sync_changes_detected ON sync_changes(detected_at DESC);
+CREATE TABLE IF NOT EXISTS router_sync_status (
+ router_id INTEGER PRIMARY KEY,
+ status TEXT NOT NULL DEFAULT 'pending',
+ last_sync_at TEXT,
+ last_error TEXT,
+ changes_detected INTEGER NOT NULL DEFAULT 0,
+ FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+);
 `);
 
 function encrypt(value) {
@@ -297,6 +330,117 @@ app.get('/api/dashboard', auth, asyncRoute(async (req, res) => {
  res.json(summary);
 }));
 
+
+function normalizedAddress(value) { return String(value || '').trim().split('/')[0]; }
+function safeJson(value) { return JSON.stringify(value); }
+function recordSyncChange(router, entityType, entityKey, customerName, address, changeType, oldValue, newValue) {
+ const oldText = oldValue == null ? null : safeJson(oldValue);
+ const newText = newValue == null ? null : safeJson(newValue);
+ // Avoid double-counting an isolation transition that the application itself logged recently.
+ let source = 'external_or_unattributed';
+ if (entityType === 'isolation') {
+   const expectedAction = newValue ? 'isolate' : 'restore';
+   const recent = db.prepare("SELECT id FROM isolation_history WHERE router_id=? AND address=? AND action=? AND result='success' AND created_at >= datetime('now','-90 seconds') ORDER BY id DESC LIMIT 1")
+     .get(router.id, address, expectedAction);
+   if (recent) source = 'application_action';
+ }
+ db.prepare('INSERT INTO sync_changes(router_id,entity_type,entity_key,customer_name,address,change_type,old_value,new_value,source) VALUES(?,?,?,?,?,?,?,?,?)')
+   .run(router.id, entityType, entityKey, customerName || '', address || '', changeType, oldText, newText, source);
+ db.prepare('UPDATE router_sync_status SET changes_detected=changes_detected+1 WHERE router_id=?').run(router.id);
+}
+function displayQueueState(q) {
+ return { name:String(q.name||''), target:String(q.target||''), maxLimit:String(q['max-limit']||''), disabled:q.disabled==='true'||q.disabled===true };
+}
+async function syncRouter(router) {
+ const result = await withRouter(router, async api => {
+   const [queues, addressRows] = await Promise.all([
+     api.write('/queue/simple/print'),
+     api.write('/ip/firewall/address-list/print', ['?list='+ISOLATION_LIST])
+   ]);
+   return {queues,addressRows};
+ });
+ const current = new Map();
+ for (const q of result.queues) {
+   const target = String(q.target||'').split(',')[0].trim();
+   const address = normalizedAddress(target);
+   const key = String(q.name||q['.id']||'queue')+'|'+address;
+   current.set('queue:'+key, {type:'queue', key, name:String(q.name||''), address, state:displayQueueState(q)});
+ }
+ const isolatedAddresses = new Set(result.addressRows.map(row=>normalizedAddress(row.address)));
+ for (const address of isolatedAddresses) {
+   const queue = result.queues.find(q => String(q.target||'').split(',').some(t=>normalizedAddress(t.trim())===address));
+   const name = queue ? String(queue.name||'') : (result.addressRows.find(row=>normalizedAddress(row.address)===address)?.comment||'');
+   current.set('isolation:'+address, {type:'isolation', key:address, name, address, state:{isolated:true}});
+ }
+ const prior = db.prepare('SELECT entity_key,entity_type,state_json FROM sync_snapshots WHERE router_id=?').all(router.id);
+ const priorMap = new Map(prior.map(row=>[row.entity_type+':'+row.entity_key,row]));
+ const upsert = db.prepare("INSERT INTO sync_snapshots(router_id,entity_key,entity_type,state_json,updated_at) VALUES(?,?,?,?,datetime('now')) ON CONFLICT(router_id,entity_key,entity_type) DO UPDATE SET state_json=excluded.state_json,updated_at=datetime('now')");
+ const transaction = db.transaction(() => {
+   // First successful scan seeds the baseline and intentionally creates no false change events.
+   for (const item of current.values()) {
+     const id = item.type+':'+item.key, previous = priorMap.get(id);
+     if (previous) {
+       let oldState;
+       try { oldState = JSON.parse(previous.state_json); } catch { oldState = {}; }
+       if (safeJson(oldState) !== safeJson(item.state)) {
+         const changeType = item.type==='isolation' ? 'isolation_state_changed' : 'queue_configuration_changed';
+         recordSyncChange(router,item.type,item.key,item.name,item.address,changeType,oldState,item.state);
+       }
+     } else if (prior.length) {
+       recordSyncChange(router,item.type,item.key,item.name,item.address,item.type==='isolation'?'isolation_added':'queue_added',null,item.state);
+     }
+     upsert.run(router.id,item.key,item.type,safeJson(item.state));
+   }
+   for (const row of prior) {
+     const id = row.entity_type+':'+row.entity_key;
+     if (current.has(id)) continue;
+     let oldState;
+     try { oldState = JSON.parse(row.state_json); } catch { oldState = {}; }
+     const itemType = row.entity_type;
+     const address = itemType==='isolation' ? row.entity_key : (oldState.target||'').split(',')[0].trim().split('/')[0];
+     const name = itemType==='queue' ? oldState.name||'' : '';
+     recordSyncChange(router,itemType,row.entity_key,name,address,itemType==='isolation'?'isolation_removed':'queue_removed',oldState,null);
+     db.prepare('DELETE FROM sync_snapshots WHERE router_id=? AND entity_key=? AND entity_type=?').run(router.id,row.entity_key,row.entity_type);
+   }
+   db.prepare("INSERT INTO router_sync_status(router_id,status,last_sync_at,last_error) VALUES(?,'online',datetime('now'),NULL) ON CONFLICT(router_id) DO UPDATE SET status='online',last_sync_at=datetime('now'),last_error=NULL").run(router.id);
+ });
+ transaction();
+ return {routerId:router.id,online:true,queues:result.queues.length,isolated:isolatedAddresses.size};
+}
+let syncRunning = false;
+async function syncAllRouters() {
+ if (syncRunning) return;
+ syncRunning = true;
+ try {
+   const all = db.prepare('SELECT * FROM routers ORDER BY id').all();
+   const known = new Set(all.map(r=>r.id));
+   for (const router of all) {
+     try { await syncRouter(router); }
+     catch (e) {
+       db.prepare("INSERT INTO router_sync_status(router_id,status,last_sync_at,last_error) VALUES(?,'offline',datetime('now'),?) ON CONFLICT(router_id) DO UPDATE SET status='offline',last_sync_at=datetime('now'),last_error=excluded.last_error").run(router.id,String(e.message||'Koneksi gagal').slice(0,500));
+     }
+   }
+   db.prepare('DELETE FROM router_sync_status WHERE router_id NOT IN (SELECT id FROM routers)').run();
+ } finally { syncRunning = false; }
+}
+app.get('/api/sync/status', auth, (req,res) => {
+ const rows = db.prepare(`SELECT r.id AS router_id,r.name AS router_name,
+   COALESCE(s.status,'pending') AS status,s.last_sync_at,s.last_error,COALESCE(s.changes_detected,0) AS changes_detected
+   FROM routers r LEFT JOIN router_sync_status s ON s.router_id=r.id ORDER BY r.name`).all();
+ const changes = db.prepare('SELECT COUNT(*) AS n FROM sync_changes').get().n;
+ res.json({intervalSeconds:30,isolationList:ISOLATION_LIST,totalChanges:changes,routers:rows});
+});
+app.get('/api/sync/changes', auth, (req,res) => {
+ const limit = Math.min(Math.max(Number(req.query.limit)||100,1),500);
+ const rows = db.prepare(`SELECT c.*,r.name AS router_name FROM sync_changes c
+   JOIN routers r ON r.id=c.router_id ORDER BY c.id DESC LIMIT ?`).all(limit);
+ res.json(rows.map(row=>({...row,old_value:row.old_value?JSON.parse(row.old_value):null,new_value:row.new_value?JSON.parse(row.new_value):null})));
+});
+app.post('/api/sync/run', auth, asyncRoute(async (req,res) => {
+ await syncAllRouters();
+ res.json({ok:true,status:db.prepare('SELECT router_id,status,last_sync_at,last_error FROM router_sync_status ORDER BY router_id').all()});
+}));
+
 app.use('/api', (req, res) => res.status(404).json({ error: 'Endpoint tidak ditemukan.' }));
 app.use((err, req, res, next) => {
  console.error(new Date().toISOString(), err.message);
@@ -329,3 +473,5 @@ async function sampleTraffic() {
 app.listen(PORT, '0.0.0.0', () => console.log(`User Manager berjalan pada port ${PORT}`));
 setTimeout(() => sampleTraffic().catch(e=>console.warn('Sampling awal gagal:',e.message)), 5000);
 setInterval(() => sampleTraffic().catch(e=>console.warn('Sampling gagal:',e.message)), 60000);
+setTimeout(() => syncAllRouters().catch(e=>console.warn('Sinkronisasi awal gagal:',e.message)), 8000);
+setInterval(() => syncAllRouters().catch(e=>console.warn('Sinkronisasi gagal:',e.message)), 30000);
