@@ -27,6 +27,13 @@ CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE,
  password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'admin', created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS integrations (
+ id INTEGER PRIMARY KEY CHECK(id=1),
+ zabbix_url TEXT NOT NULL DEFAULT '',
+ zabbix_token_enc TEXT NOT NULL DEFAULT '',
+ hostgroup TEXT NOT NULL DEFAULT 'MikroTik Queues',
+ updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 CREATE TABLE IF NOT EXISTS routers (
  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, host TEXT NOT NULL,
  port INTEGER NOT NULL DEFAULT 8728, username TEXT NOT NULL, password_enc TEXT NOT NULL,
@@ -147,6 +154,53 @@ function history(routerId, name, address, action, reason, operator, result) {
 }
 
 app.get('/api/health', (req, res) => res.json({ ok: true, service: 'MikroTik User Manager' }));
+function getZabbixConfig() {
+ const row = db.prepare('SELECT * FROM integrations WHERE id=1').get();
+ return row ? {url:row.zabbix_url,token:row.zabbix_token_enc?decrypt(row.zabbix_token_enc):'',hostgroup:row.hostgroup||'MikroTik Queues',updatedAt:row.updated_at} : {url:'',token:'',hostgroup:'MikroTik Queues',updatedAt:null};
+}
+async function zabbixCall(config, method, params={}) {
+ if (!config.url || !config.token) throw Object.assign(new Error('Konfigurasi URL dan token Zabbix belum lengkap.'),{status:400});
+ const response = await fetch(config.url, {
+   method:'POST',
+   headers:{'Content-Type':'application/json-rpc','Authorization':'Bearer '+config.token},
+   body:JSON.stringify({jsonrpc:'2.0',method,params,id:1}),
+   signal:AbortSignal.timeout(10000)
+ });
+ if (!response.ok) throw new Error('Zabbix API mengembalikan HTTP '+response.status+'.');
+ const data=await response.json();
+ if (data.error) throw new Error(data.error.data||data.error.message||'Zabbix API menolak permintaan.');
+ return data.result;
+}
+app.get('/api/integrations/zabbix',auth,(req,res)=>{
+ const c=getZabbixConfig();
+ res.json({configured:!!(c.url&&c.token),url:c.url,hostgroup:c.hostgroup,tokenConfigured:!!c.token,updatedAt:c.updatedAt});
+});
+app.put('/api/integrations/zabbix',auth,(req,res)=>{
+ const {url,token,hostgroup='MikroTik Queues'}=req.body||{};
+ if(typeof url!=='string'||!/^https?:\/\//i.test(url.trim())||url.length>500) return res.status(400).json({error:'URL API Zabbix harus berupa URL http/https yang valid.'});
+ if(typeof token!=='string'||token.trim().length<8||token.length>5000) return res.status(400).json({error:'Token API Zabbix wajib diisi.'});
+ if(typeof hostgroup!=='string'||hostgroup.trim().length>200) return res.status(400).json({error:'Nama host group tidak valid.'});
+ db.prepare("INSERT INTO integrations(id,zabbix_url,zabbix_token_enc,hostgroup,updated_at) VALUES(1,?,?,?,datetime('now')) ON CONFLICT(id) DO UPDATE SET zabbix_url=excluded.zabbix_url,zabbix_token_enc=excluded.zabbix_token_enc,hostgroup=excluded.hostgroup,updated_at=datetime('now')")
+  .run(url.trim().replace(/\/+$/,'') ,encrypt(token.trim()),hostgroup.trim()||'MikroTik Queues');
+ res.json({ok:true,message:'Konfigurasi Zabbix disimpan terenkripsi.'});
+});
+app.post('/api/integrations/zabbix/test',auth,asyncRoute(async(req,res)=>{
+ const current=getZabbixConfig();
+ const url=typeof req.body?.url==='string'&&req.body.url.trim()?req.body.url.trim().replace(/\/+$/,''):current.url;
+ const token=typeof req.body?.token==='string'&&req.body.token.trim()?req.body.token.trim():current.token;
+ const result=await zabbixCall({url,token},'apiinfo.version',{});
+ res.json({ok:true,version:result,message:'Koneksi ke Zabbix berhasil.'});
+}));
+app.get('/api/integrations/zabbix/hosts',auth,asyncRoute(async(req,res)=>{
+ const c=getZabbixConfig();
+ if(!c.url||!c.token) return res.status(400).json({error:'Konfigurasi Zabbix belum disimpan.'});
+ const groups=await zabbixCall(c,'hostgroup.get',{output:['groupid','name'],filter:{name:[c.hostgroup]}});
+ const groupIds=groups.map(g=>g.groupid);
+ if(!groupIds.length) return res.json({hostgroup:c.hostgroup,hosts:[],count:0,warning:'Host group belum ditemukan di Zabbix.'});
+ const hosts=await zabbixCall(c,'host.get',{output:['hostid','host','name','status','available'],groupids:groupIds,selectInterfaces:['ip','dns','available','type']});
+ res.json({hostgroup:c.hostgroup,count:hosts.length,hosts:hosts.map(h=>({hostid:h.hostid,host:h.host,name:h.name,status:h.status==='0'?'enabled':'disabled',interfaces:(h.interfaces||[]).map(i=>({ip:i.ip,dns:i.dns,available:i.available})),available:(h.interfaces||[]).some(i=>i.available==='1')?'available':(h.interfaces||[]).some(i=>i.available==='2')?'unavailable':'unknown'}))});
+}));
+
 app.post('/api/login', (req, res) => {
  const { username, password } = req.body || {};
  if (typeof username !== 'string' || typeof password !== 'string' || username.length > 100 || password.length > 200)
