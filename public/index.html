@@ -205,8 +205,8 @@ function renderCustomers(){
  $('#customerSelectedCount').textContent=selectedCustomers.size+' dipilih';
  if(!visible.length){rows.innerHTML='<tr><td colspan="8" class="empty">Tidak ada pelanggan yang cocok atau pilih router.</td></tr>';return;}
  rows.innerHTML=visible.map((c,index)=>'<tr><td><input type="checkbox" class="customer-check" data-key="'+esc(c.address||c.queueId)+'" '+(selectedCustomers.has(c.address||c.queueId)?'checked':'')+' aria-label="Pilih pelanggan"></td><td><strong>'+esc(c.name||'(tanpa nama)')+'</strong><small>'+esc(c.routerName)+' · '+esc(c.queueId)+'</small></td><td>'+esc(c.target||'—')+'</td><td>'+customerBadge(c)+'</td><td>'+formatRate(c.rxBps)+'</td><td>'+formatRate(c.txBps)+'</td><td>'+esc(c.maxLimit||'—')+'</td><td><div class="actions"><button class="btn btn-soft" data-test-customer="'+index+'">Test</button><button class="btn '+(c.status==='isolated'?'btn-soft':'btn-danger')+'" data-customer-action="'+(c.status==='isolated'?'restore':'isolate')+'" data-customer-index="'+index+'">'+(c.status==='isolated'?'Pulihkan':'Isolasi')+'</button></div></td></tr>').join('');
- $('#customerRows [data-customer-action]').forEach(el=>el.onclick=()=>{const c=visible[Number(el.dataset.customerIndex)];if(c)customerAction(c.address,c.name,el.dataset.customerAction);});
-  $('#customerRows [data-test-customer]').forEach(el=>el.onclick=()=>{const c=visible[Number(el.dataset.testCustomer)];if(c)testCustomer(c);});
+ Array.from(document.querySelectorAll('#customerRows [data-customer-action]')).forEach(el=>el.onclick=()=>{const c=visible[Number(el.dataset.customerIndex)];if(c)customerAction(c.address,c.name,el.dataset.customerAction);});
+  Array.from(document.querySelectorAll('#customerRows [data-test-customer]')).forEach(el=>el.onclick=()=>{const c=visible[Number(el.dataset.testCustomer)];if(c)testCustomer(c);});
  $('.customer-check').forEach(el=>el.onchange=()=>{const key=el.dataset.key;if(el.checked)selectedCustomers.add(key);else selectedCustomers.delete(key);$('#customerSelectedCount').textContent=selectedCustomers.size+' dipilih';});
 }
 async function loadCustomers(){
