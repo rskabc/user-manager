@@ -99,3 +99,25 @@ npm start
 ~~~
 
 SQLite tersimpan pada direktori DATA_DIR (default ./data di luar container). Untuk development, jalankan dengan Node.js 22 atau lebih baru.
+
+
+## Sinkronisasi otomatis konfigurasi MikroTik
+
+Aplikasi memeriksa setiap router setiap **30 detik** melalui RouterOS API, membaca Simple Queue dan IPv4 Firewall Address List yang dikonfigurasi sebagai `MIKROTIK_ISOLATION_LIST` (default `blocked_ip`). Snapshot sebelumnya dan perubahan yang terdeteksi disimpan di SQLite.
+
+Endpoint API (memerlukan login/Bearer token):
+- `GET /api/sync/status` — status router, waktu sinkronisasi terakhir, daftar isolasi yang digunakan, dan ringkasan perubahan.
+- `GET /api/sync/changes?limit=100` — riwayat perubahan konfigurasi yang terdeteksi.
+- `POST /api/sync/run` — jalankan sinkronisasi sekarang.
+
+Perubahan yang dapat dideteksi meliputi penambahan/penghapusan queue, perubahan nama/target/max-limit/disabled, serta penambahan/penghapusan IP pada address list isolasi. Perubahan manual melalui Winbox akan tercatat pada siklus polling berikutnya. Waktu yang dicatat adalah **waktu terdeteksi**, bukan waktu pasti perubahan dilakukan. Polling tidak dapat memastikan akun/operator yang melakukan perubahan; kolom sumber ditandai sebagai perubahan eksternal/tidak teratribusi atau aksi aplikasi yang dapat dikorelasikan dengan riwayat tindakan.
+
+Sinkronisasi bersifat observasional: aplikasi **tidak membatalkan atau menimpa perubahan manual** pada MikroTik. Sinkronisasi pertama menjadi baseline agar konfigurasi yang sudah ada tidak dianggap sebagai perubahan baru. Pastikan akun API memiliki hak baca untuk Simple Queue dan IP Firewall Address List.
+
+Untuk memakai list sesuai konfigurasi Anda, isi file `.env` dengan:
+
+~~~env
+MIKROTIK_ISOLATION_LIST=blocked_ip
+~~~
+
+Setelah mengubah `.env`, restart container aplikasi. Perubahan kode di GitHub belum otomatis ter-deploy ke server.
