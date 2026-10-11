@@ -196,16 +196,16 @@ app.post('/api/routers/:id/isolation', auth, asyncRoute(async (req, res) => {
    ]);
    const success = action === 'isolate' ? verify.length > 0 : verify.length === 0;
    if (!success) throw new Error('Perintah dikirim tetapi verifikasi kondisi firewall gagal.');
-   return { verified: true };
+   return { verified: true, changed };
  });
- history(router.id, name.trim(), address, action, reason.trim(), req.user.username, 'success');
+ if (result.changed) history(router.id, name.trim(), address, action, reason.trim(), req.user.username, 'success');
  res.json({ ok: true, result });
 }));
 
 app.get('/api/routers/:id/isolated', auth, asyncRoute(async (req, res) => {
  const router = routerById(req.params.id);
  const rows = await withRouter(router, api => api.write('/ip/firewall/address-list/print', ['?list=' + ISOLATION_LIST]));
- res.json(rows.map(row => ({ id: row['.id'], address: row.address || '', name: (row.comment || '').replace(/^User Manager \\|\\s*/, ''), comment: row.comment || '' })));
+ res.json(rows.map(row => ({ id: row['.id'], address: row.address || '', name: (row.comment || '').startsWith('User Manager | ') ? row.comment.slice('User Manager | '.length) : (row.comment || ''), comment: row.comment || '' })));
 }));
 
 app.get('/api/history', auth, (req, res) => {
