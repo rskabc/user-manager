@@ -30,13 +30,13 @@ chmod +x deploy.sh
 
 Pada deployment pertama, script membuat .env, secret JWT, kunci enkripsi, dan password admin acak. **Simpan password yang dicetak script.** File .env dibuat dengan permission terbatas dan tidak boleh di-commit.
 
-Aplikasi default tersedia pada port **8300**:
+Aplikasi default tersedia pada port **8224**:
 
 ~~~text
-http://IP-SERVER:8300
+http://IP-SERVER:8224
 ~~~
 
-Jika menggunakan reverse proxy, arahkan upstream ke port 8300. Gunakan HTTPS di reverse proxy sebelum login dari jaringan yang tidak tepercaya. Port aplikasi sebaiknya tidak dibuka langsung ke internet tanpa TLS/access control.
+Jika menggunakan reverse proxy, arahkan upstream ke port 8224. Gunakan HTTPS di reverse proxy sebelum login dari jaringan yang tidak tepercaya. Port aplikasi sebaiknya tidak dibuka langsung ke internet tanpa TLS/access control.
 
 Untuk deployment berikutnya:
 
