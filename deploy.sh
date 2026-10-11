@@ -40,7 +40,7 @@ docker compose up -d --build --remove-orphans
 echo "==> Status container:"
 docker compose ps
 APP_PORT_VALUE="$(grep '^APP_PORT=' .env | cut -d= -f2 | tr -d '\r' || true)"
-APP_PORT_VALUE="${APP_PORT_VALUE:-8300}"
+APP_PORT_VALUE="${APP_PORT_VALUE:-8224}"
 echo
 echo "Aplikasi: http://localhost:${APP_PORT_VALUE}"
 echo "Untuk log: docker compose logs -f --tail=100"
