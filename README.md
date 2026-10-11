@@ -5,6 +5,9 @@ Aplikasi self-hosted untuk mengelola Simple Queue, bandwidth, trafik, dan isolas
 ## Fitur awal
 
 - Dashboard status router, jumlah queue, alamat terisolasi, dan aktivitas hari ini.
+- Status pelanggan dari kondisi aktual queue/firewall, pencarian nama/IP/queue, dan refresh otomatis setiap 15 detik.
+- Bulk isolation/restore sampai 100 pelanggan per proses, dengan konfirmasi dan verifikasi per pelanggan.
+- Pengumpulan rate upload/download ke SQLite setiap 60 detik, grafik per jam/hari/bulan, serta retensi sampel 31 hari.
 - Multi-router dengan tes koneksi RouterOS API.
 - Daftar Simple Queue: tambah, edit, hapus, aktif/nonaktif.
 - Isolasi dan pemulihan pelanggan melalui address-list khusus aplikasi.
@@ -80,7 +83,7 @@ Rule contoh di atas bukan konfigurasi universal. Pertimbangkan IPv6, trafik ke r
 
 ## Batasan versi awal
 
-- Pemantauan trafik merupakan snapshot saat refresh; belum ada grafik historis atau polling otomatis.
+- Monitoring status pelanggan melakukan polling saat halaman pelanggan aktif; trafik historis mulai terkumpul setelah aplikasi dan router berjalan. Grafik dapat kosong sebelum ada sampel.
 - Waktu riwayat adalah waktu server saat tindakan berhasil diverifikasi. Jika address-list sudah ada sebelum aplikasi mengelolanya, aplikasi tidak mengarang waktu isolasi sebelumnya.
 - Riwayat saat ini fokus pada tindakan isolasi/pemulihan, belum merupakan audit log lengkap seluruh perubahan queue.
 - RouterOS API dan field yang tersedia dapat berbeda berdasarkan versi, model, konfigurasi, hak akses, dan jenis queue. Validasi di lab sebelum penggunaan produksi.
