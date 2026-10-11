@@ -80,6 +80,7 @@
   <div class="side-label">MENU UTAMA</div>
   <button class="nav-btn active" data-page="dashboard"><span class="nav-icon">▦</span>Dashboard</button>
   <button class="nav-btn" data-page="routers"><span class="nav-icon">⌘</span>Router MikroTik</button>
+  <button class="nav-btn" data-page="zabbix"><span class="nav-icon">◉</span>Integrasi Zabbix</button>
   <button class="nav-btn" data-page="customers"><span class="nav-icon">◎</span>Pelanggan</button>
   <button class="nav-btn" data-page="traffic"><span class="nav-icon">⌁</span>Grafik Trafik</button>
   <button class="nav-btn" data-page="isolation"><span class="nav-icon">⊘</span>Isolasi Pelanggan</button>
@@ -102,6 +103,28 @@
    </div>
    <div class="panel"><div class="panel-head"><div><h2>Aktivitas isolasi terbaru</h2><p>Waktu hanya tercatat setelah aksi berhasil diverifikasi di router</p></div><button class="btn btn-soft" data-goto="history">Lihat riwayat</button></div><div class="table-wrap"><table><thead><tr><th>Waktu</th><th>Pelanggan</th><th>Router</th><th>Aksi</th><th>Operator</th><th>Status</th></tr></thead><tbody id="recentRows"><tr><td colspan="6" class="empty">Belum ada aktivitas.</td></tr></tbody></table></div></div>
    <div class="footer-note">Dashboard mengambil data langsung dari router saat Anda menekan refresh. Grafik historis trafik belum direkam.</div>
+  </section>
+  <section id="page-zabbix" class="section">
+   <div class="page-head"><div><h1>Integrasi Zabbix</h1><p>Hubungkan User Manager ke Zabbix menggunakan API token yang disimpan terenkripsi di SQLite.</p></div><button class="btn btn-plain" id="refreshZabbix">↻ Refresh</button></div>
+   <div class="notice">Gunakan API token khusus Zabbix dengan izin baca host dan host group. Token dikirim ke backend User Manager, tidak disimpan di browser, dan tidak pernah ditampilkan kembali. Pastikan URL API dapat diakses dari container User Manager.</div>
+   <div class="cards">
+    <div class="stat"><div class="stat-top">Status integrasi</div><div class="stat-num" id="zbxState" style="font-size:20px">Belum dikonfigurasi</div><div class="stat-foot" id="zbxStateNote">Simpan URL API dan token untuk memulai.</div></div>
+    <div class="stat"><div class="stat-top">Versi Zabbix</div><div class="stat-num" id="zbxVersion" style="font-size:20px">—</div><div class="stat-foot">Diisi setelah tes koneksi berhasil.</div></div>
+    <div class="stat"><div class="stat-top">Host ditemukan</div><div class="stat-num" id="zbxHostCount">—</div><div class="stat-foot" id="zbxHostGroupNote">Berdasarkan host group yang dipilih.</div></div>
+    <div class="stat"><div class="stat-top">Terakhir disimpan</div><div class="stat-num" id="zbxUpdated" style="font-size:14px">—</div><div class="stat-foot">Konfigurasi integrasi.</div></div>
+   </div>
+   <div class="panel"><div class="panel-head"><div><h2>Konfigurasi koneksi</h2><p>Contoh URL: http://SERVER_ZABBIX:8080/api_jsonrpc.php</p></div><span class="badge badge-gray" id="zbxConfiguredBadge">Belum terhubung</span></div>
+    <div class="panel-body">
+     <div class="field"><label for="zbxUrl">URL API Zabbix</label><input id="zbxUrl" type="url" placeholder="http://zabbix-server:8080/api_jsonrpc.php" autocomplete="url"></div>
+     <div class="field"><label for="zbxToken">API token</label><input id="zbxToken" type="password" placeholder="Tempel token API Zabbix" autocomplete="new-password"></div>
+     <div class="field"><label for="zbxHostGroup">Nama host group</label><input id="zbxHostGroup" value="MikroTik Queues" placeholder="MikroTik Queues"></div>
+     <p class="muted-small">Token tidak ditampilkan setelah disimpan. Masukkan token lagi hanya ketika menyimpan konfigurasi baru atau mengganti token.</p>
+     <div class="toolbar" style="margin-top:14px"><button class="btn btn-primary" id="saveZabbix">Simpan konfigurasi</button><button class="btn btn-soft" id="testZabbix">Tes koneksi</button><button class="btn btn-plain" id="loadZabbixHosts">Ambil daftar host</button></div>
+    </div>
+   </div>
+   <div class="panel"><div class="panel-head"><div><h2>Host dari Zabbix</h2><p>Daftar host pada host group yang dikonfigurasi. Ini merupakan data monitoring dari Zabbix.</p></div></div>
+    <div class="table-wrap"><table style="min-width:600px"><thead><tr><th>Nama host</th><th>Technical name</th><th>IP / DNS</th><th>Status host</th><th>Interface</th></tr></thead><tbody id="zabbixHostRows"><tr><td colspan="5" class="empty">Konfigurasikan Zabbix lalu pilih Ambil daftar host.</td></tr></tbody></table></div>
+   </div>
   </section>
   <section id="page-routers" class="section">
    <div class="page-head"><div><h1>Router MikroTik</h1><p>Kelola koneksi RouterOS API dengan kredensial tersimpan terenkripsi.</p></div><button class="btn btn-primary" id="addRouterBtn">＋ Tambah router</button></div>
@@ -152,15 +175,62 @@
 <script>
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 let token=localStorage.getItem('um_token')||sessionStorage.getItem('um_token')||'', routers=[], lastDashboard=null, lastHistory=[], currentQueues=[], toastTimer;
-const titles={dashboard:'Dashboard',routers:'Router MikroTik',queues:'Manajemen Pelanggan',customers:'Manajemen Pelanggan',traffic:'Grafik Trafik',isolation:'Isolasi Pelanggan',history:'Riwayat & Audit'};
+const titles={dashboard:'Dashboard',routers:'Router MikroTik',zabbix:'Integrasi Zabbix',queues:'Manajemen Pelanggan',customers:'Manajemen Pelanggan',traffic:'Grafik Trafik',isolation:'Isolasi Pelanggan',history:'Riwayat & Audit'};
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function toast(msg,bad=false){const el=$('#toast');el.textContent=msg;el.style.background=bad?'#a72b2b':'#17243b';el.classList.remove('hidden');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.add('hidden'),3500);}
 async function api(url,opts={}){const res=await fetch('/api'+url,{...opts,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{}),...(opts.headers||{})}});let data={};try{data=await res.json()}catch{}if(res.status===401){logout();throw Error(data.error||'Sesi berakhir.')}if(!res.ok)throw Error(data.error||'Permintaan gagal');return data;}
 function logout(){token='';localStorage.removeItem('um_token');sessionStorage.removeItem('um_token');$('#appView').classList.add('hidden');$('#loginView').classList.remove('hidden');}
 $('#loginForm').addEventListener('submit',async e=>{e.preventDefault();$('#loginError').textContent='';try{const d=await api('/login',{method:'POST',body:JSON.stringify({username:$('#loginUser').value,password:$('#loginPass').value})});token=d.token;localStorage.setItem('um_token',token);sessionStorage.setItem('um_token',token);startApp(d.user);}catch(err){$('#loginError').textContent=err.message;}});
 $('#logoutBtn').onclick=logout;
+async function loadZabbixConfig(){
+ try{
+  const d=await api('/integrations/zabbix');
+  $('#zbxUrl').value=d.url||'';
+  $('#zbxHostGroup').value=d.hostgroup||'MikroTik Queues';
+  $('#zbxToken').value='';
+  $('#zbxState').textContent=d.configured?'Dikonfigurasi':'Belum dikonfigurasi';
+  $('#zbxStateNote').textContent=d.configured?'Token tersimpan di server.':'Masukkan URL API dan token.';
+  $('#zbxConfiguredBadge').className='badge '+(d.configured?'badge-green':'badge-gray');
+  $('#zbxConfiguredBadge').textContent=d.configured?'Konfigurasi tersimpan':'Belum terhubung';
+  $('#zbxUpdated').textContent=d.updatedAt||'—';
+ }catch(e){toast(e.message,true);}
+}
+async function testZabbix(){
+ const b=$('#testZabbix');b.disabled=true;b.textContent='Menguji…';
+ try{
+  const d=await api('/integrations/zabbix/test',{method:'POST',body:JSON.stringify({url:$('#zbxUrl').value.trim(),token:$('#zbxToken').value})});
+  $('#zbxState').textContent='Terhubung';$('#zbxStateNote').textContent='Tes koneksi berhasil.';
+  $('#zbxVersion').textContent=d.version||'OK';$('#zbxConfiguredBadge').className='badge badge-green';$('#zbxConfiguredBadge').textContent='Tes berhasil';
+  toast('Koneksi Zabbix berhasil. Versi '+d.version);
+ }catch(e){$('#zbxState').textContent='Gagal';$('#zbxStateNote').textContent=e.message;$('#zbxConfiguredBadge').className='badge badge-red';$('#zbxConfiguredBadge').textContent='Koneksi gagal';toast(e.message,true);}
+ finally{b.disabled=false;b.textContent='Tes koneksi';}
+}
+async function saveZabbix(){
+ const b=$('#saveZabbix');b.disabled=true;b.textContent='Menyimpan…';
+ try{
+  await api('/integrations/zabbix',{method:'PUT',body:JSON.stringify({url:$('#zbxUrl').value.trim(),token:$('#zbxToken').value,hostgroup:$('#zbxHostGroup').value.trim()||'MikroTik Queues'})});
+  $('#zbxToken').value='';await loadZabbixConfig();toast('Konfigurasi Zabbix disimpan dengan enkripsi.');
+ }catch(e){toast(e.message,true);}
+ finally{b.disabled=false;b.textContent='Simpan konfigurasi';}
+}
+async function loadZabbixHosts(){
+ const b=$('#loadZabbixHosts');b.disabled=true;b.textContent='Mengambil…';
+ try{
+  const d=await api('/integrations/zabbix/hosts');$('#zbxHostCount').textContent=d.count;
+  $('#zbxHostGroupNote').textContent='Host group: '+d.hostgroup;
+  const rows=d.hosts||[];
+  $('#zabbixHostRows').innerHTML=rows.length?rows.map(h=>'<tr><td><strong>'+esc(h.name||h.host)+'</strong></td><td>'+esc(h.host)+'</td><td>'+esc((h.interfaces||[]).map(i=>i.ip||i.dns).filter(Boolean).join(', ')||'—')+'</td><td><span class="badge '+(h.status==='enabled'?'badge-green':'badge-gray')+'">'+esc(h.status)+'</span></td><td><span class="badge '+(h.available==='available'?'badge-green':h.available==='unavailable'?'badge-red':'badge-amber')+'">'+esc(h.available)+'</span></td></tr>').join(''):'<tr><td colspan="5" class="empty">Tidak ada host pada host group ini.</td></tr>';
+  if(d.warning)toast(d.warning,true);else toast('Berhasil mengambil '+d.count+' host dari Zabbix.');
+ }catch(e){$('#zabbixHostRows').innerHTML='<tr><td colspan="5" class="empty">'+esc(e.message)+'</td></tr>';toast(e.message,true);}
+ finally{b.disabled=false;b.textContent='Ambil daftar host';}
+}
+$('#saveZabbix').addEventListener('click',saveZabbix);
+$('#testZabbix').addEventListener('click',testZabbix);
+$('#refreshZabbix').addEventListener('click',loadZabbixConfig);
+$('#loadZabbixHosts').addEventListener('click',loadZabbixHosts);
+
 function startApp(user){$('#loginView').classList.add('hidden');$('#appView').classList.remove('hidden');$('#whoami').textContent=user.username;$('#avatar').textContent=user.username.slice(0,1).toUpperCase();navigate('dashboard');refreshAll();}
-function navigate(page){if(page==='queues')page='customers';Array.from(document.querySelectorAll('[data-page]')).forEach(b=>b.classList.toggle('active',b.dataset.page===page));$$('.section').forEach(s=>s.classList.toggle('active',s.id==='page-'+page));$('#topTitle').textContent=titles[page]||'Dashboard';if(page==='routers')loadRouters();if(page==='queues'){loadRouters().then(()=>{fillRouterSelects();loadQueues()})}if(page==='customers'){loadRouters().then(()=>{fillRouterSelects();loadCustomers()})}if(page==='traffic'){loadRouters().then(()=>{fillRouterSelects();loadTrafficHistory()})}if(page==='isolation'){loadRouters().then(fillRouterSelects);loadIsolations()}if(page==='history')loadHistory();}
+function navigate(page){if(page==='queues')page='customers';Array.from(document.querySelectorAll('[data-page]')).forEach(b=>b.classList.toggle('active',b.dataset.page===page));$$('.section').forEach(s=>s.classList.toggle('active',s.id==='page-'+page));$('#topTitle').textContent=titles[page]||'Dashboard';if(page==='routers')loadRouters();if(page==='zabbix')loadZabbixConfig();if(page==='queues'){loadRouters().then(()=>{fillRouterSelects();loadQueues()})}if(page==='customers'){loadRouters().then(()=>{fillRouterSelects();loadCustomers()})}if(page==='traffic'){loadRouters().then(()=>{fillRouterSelects();loadTrafficHistory()})}if(page==='isolation'){loadRouters().then(fillRouterSelects);loadIsolations()}if(page==='history')loadHistory();}
 $$('[data-page]').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.page)));
 $$('[data-goto]').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.goto)));
 function fmtDate(s){if(!s)return '—';const d=new Date(s.replace(' ','T')+'Z');return isNaN(d)?esc(s):d.toLocaleString('id-ID',{dateStyle:'medium',timeStyle:'short'});}
