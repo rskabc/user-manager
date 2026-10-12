@@ -297,7 +297,7 @@ app.get('/api/integrations/ip-map',auth,asyncRoute(async(req,res)=>{
   }
  }catch(e){return res.json({sourceKey:'IP address',warning:'Data Zabbix tidak tersedia: '+String(e.message||'API error'),entries:[...entries.values()].sort((a,b)=>a.ip.localeCompare(b.ip))});}
  res.json({sourceKey:'IP address',entries:[...entries.values()].sort((a,b)=>a.ip.localeCompare(b.ip))});
-});
+}));
 
 app.get('/api/integrations/hioso',auth,(req,res)=>{
  const olts=db.prepare("SELECT id,name,host,port,version,enabled,created_at,updated_at FROM hioso_olts ORDER BY name").all();
