@@ -487,7 +487,7 @@ async function loadHioso(){
   const filter=($('#hiosoSearch')?.value||'').toLowerCase();
   const shown=onus.filter(u=>[u.oltName,u.host,u.name,u.serial,u.port,u.onuId].some(v=>String(v||'').toLowerCase().includes(filter)));
   onuBody.innerHTML=shown.length?shown.map(u=>'<tr><td>'+esc(u.oltName)+'</td><td>'+esc(u.host)+'</td><td>PON '+esc(u.port)+' / ONU '+esc(u.onuId)+'</td><td>'+esc(u.name||'—')+'</td><td>'+esc(u.serial||'—')+'</td><td><span class="badge '+(u.status==='online'?'badge-green':u.status==='offline'?'badge-red':'badge-gray')+'">'+esc(u.status)+'</span></td><td>'+(Number.isFinite(u.rxPowerDbm)?u.rxPowerDbm.toFixed(2):'—')+'</td><td>'+(Number.isFinite(u.distanceMeters)?u.distanceMeters+' m':'—')+'</td></tr>').join(''):'<tr><td colspan="8" class="empty">Tidak ada tabel ONU yang terbaca atau data sesuai pencarian.</td></tr>';
-  $('[data-delete-olt]').forEach(b=>b.onclick=async()=>{if(!confirm('Hapus konfigurasi OLT ini? Riwayat sampel terkait ikut terhapus.'))return;try{await api('/integrations/hioso/'+b.dataset.deleteOlt,{method:'DELETE'});await loadHioso();toast('Konfigurasi OLT dihapus.')}catch(e){toast(e.message,true)}});
+  Array.from(document.querySelectorAll('[data-delete-olt]')).forEach(b=>b.onclick=async()=>{if(!confirm('Hapus konfigurasi OLT ini? Riwayat sampel terkait ikut terhapus.'))return;try{await api('/integrations/hioso/'+b.dataset.deleteOlt,{method:'DELETE'});await loadHioso();toast('Konfigurasi OLT dihapus.')}catch(e){toast(e.message,true)}});
  }catch(e){body.innerHTML='<tr><td colspan="7" class="empty">'+esc(e.message)+'</td></tr>';toast(e.message,true);}
 }
 async function saveHioso(){
