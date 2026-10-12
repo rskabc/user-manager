@@ -422,49 +422,10 @@ async function getZabbixHostIndex() {
    if(!prev||Number(item.lastclock)>Number(prev.lastclock)) pingByHost.set(item.hostid,item);
   }
   const checkedAt=Math.floor(Date.now()/1000);
-  // For hosts currently failing ICMP, inspect recent numeric history to find
-  // the start of the uninterrupted run of 0 values (offline start time).
-  const offlineItems=[...pingByHost.values()].filter(item=>item.lastvalue==='0'&&Number(item.lastclock)>0);
+  // Keep real-time status lightweight: historical ICMP queries are served separately
+  // from a short-lived cache so a large 30-day history cannot block the monitoring screen.
   const offlineSinceByHost=new Map();
-  if(offlineItems.length){
-   try{
-    const history=await zabbixCall(c,'history.get',{output:['itemid','clock','value'],history:3,itemids:offlineItems.map(item=>item.itemid),sortfield:'clock',sortorder:'DESC',limit:10000});
-    const byItem=new Map();
-    for(const row of history){if(!byItem.has(row.itemid))byItem.set(row.itemid,[]);byItem.get(row.itemid).push(row);}
-    for(const item of offlineItems){
-     const rows=byItem.get(item.itemid)||[];
-     let start=Number(item.lastclock);
-     // API history is newest-first: walk backwards until the last successful ping.
-     for(const row of rows){
-      if(String(row.value)==='1')break;
-      if(String(row.value)==='0')start=Math.min(start,Number(row.clock));
-     }
-     offlineSinceByHost.set(item.hostid,start);
-    }
-   }catch(historyError){console.error(new Date().toISOString(),'Zabbix ICMP history:',historyError.message);}
-  }
-  // Count ICMP down events from Zabbix numeric history for the last 30 days.
-  // A down event is counted only on a transition from successful ping (1) to failed ping (0).
   const downCountByHost=new Map();
-  const itemIds=pingItems.filter(item=>item.status!=='1'&&item.state!=='1').map(item=>item.itemid);
-  if(itemIds.length){
-   try{
-    const historyFrom=checkedAt-30*24*60*60;
-    const rows=await zabbixCall(c,'history.get',{output:['itemid','clock','value'],history:3,itemids:itemIds,time_from:historyFrom,sortfield:'clock',sortorder:'ASC',limit:100000});
-    const rowsByItem=new Map();
-    for(const row of rows){if(!rowsByItem.has(row.itemid))rowsByItem.set(row.itemid,[]);rowsByItem.get(row.itemid).push(row);}
-    for(const item of pingItems){
-     const events=rowsByItem.get(item.itemid)||[];
-     let previous=null,count=0;
-     for(const row of events){
-      const value=String(row.value);
-      if(value==='0'&&previous==='1')count++;
-      if(value==='0'||value==='1')previous=value;
-     }
-     downCountByHost.set(item.hostid,count);
-    }
-   }catch(historyError){console.error(new Date().toISOString(),'Zabbix ICMP down-count history:',historyError.message);}
-  }
   // Persist ICMP transitions to provide outage history between page refreshes.
   const upsertState=db.prepare("INSERT INTO zabbix_host_state(hostid,host_name,ip_address,is_down,down_since,last_seen) VALUES(?,?,?,?,?,datetime('now')) ON CONFLICT(hostid) DO UPDATE SET host_name=excluded.host_name,ip_address=excluded.ip_address,is_down=excluded.is_down,down_since=excluded.down_since,last_seen=datetime('now')");
   const previousState=db.prepare('SELECT * FROM zabbix_host_state WHERE hostid=?');
@@ -485,7 +446,7 @@ async function getZabbixHostIndex() {
     insertOutage.run(String(host.hostid),hostName,ipAddress,'recovered',started,ended,duration);
     upsertState.run(String(host.hostid),hostName,ipAddress,0,null);
    }else{
-    const startValue=isDown?(previous?.down_since||new Date(Number(offlineSinceByHost.get(host.hostid)||checkedAt)*1000).toISOString().slice(0,19).replace('T',' ')):null;
+    const startValue=isDown?(previous?.down_since||nowIso):null;
     upsertState.run(String(host.hostid),hostName,ipAddress,isDown?1:0,startValue);
    }
   }
@@ -494,7 +455,7 @@ async function getZabbixHostIndex() {
    const fresh=ping&&Number(ping.lastclock)>0&&checkedAt-Number(ping.lastclock)<=300;
    const icmpStatus=host.status!=='0'?'disabled':!ping||!fresh?'unknown':ping.lastvalue==='1'?'available':ping.lastvalue==='0'?'unavailable':'unknown';
    const interfaces=host.interfaces||[];
-   return {...host,interfaces,icmpStatus,icmpLastCheck:ping?.lastclock||null,icmpOfflineSince:offlineSinceByHost.get(host.hostid)||null,icmpDownCount30d:downCountByHost.get(host.hostid)||0};
+   const savedState=db.prepare('SELECT down_since FROM zabbix_host_state WHERE hostid=?').get(String(host.hostid));\n   return {...host,interfaces,icmpStatus,icmpLastCheck:ping?.lastclock||null,icmpOfflineSince:offlineSinceByHost.get(host.hostid)||savedState?.down_since||null,icmpDownCount30d:downCountByHost.get(host.hostid)||0};
   });
   zabbixHostCache={at:now,hosts:indexedHosts,error:''};
  } catch(e) { zabbixHostCache={at:now,hosts:[],error:e.message||'Zabbix tidak tersedia'}; }
@@ -529,50 +490,75 @@ app.get('/api/routers/:id/customers', auth, asyncRoute(async (req,res) => {
  const zbx=await getZabbixHostIndex();
  res.json(data.queues.map(q=>enrichCustomerWithZabbix(queueCustomer(q,router.id,router.name,addresses),zbx.hosts,zbx.error)));
 }));
-app.get('/api/monitoring/outages', auth, asyncRoute(async(req,res)=>{
-   const zbx=await getZabbixHostIndex(),hosts=zbx.hosts||[];
-   // Zabbix is the source of truth for ICMP downtime and outage history.
-   const currentDown=hosts.filter(h=>h.icmpStatus==='unavailable').map(h=>{
-    const started=h.icmpOfflineSince?new Date(Number(h.icmpOfflineSince)*1000).toISOString().slice(0,19).replace('T',' '):null;
-    const minutes=started?Math.max(0,Math.floor((Date.now()-new Date(started.replace(' ','T')+'Z').getTime())/60000)):null;
-    const count=Number(h.icmpDownCount30d)||0;
-    let cause='Perangkat tidak merespons ICMP',recommendation='Periksa daya perangkat, koneksi kabel/wireless, alamat IP, dan jalur jaringan.';
-    if(minutes!==null&&minutes>=60){cause='Gangguan berkepanjangan (lebih dari 1 jam)';recommendation='Prioritaskan pemeriksaan lokasi pelanggan dan jalur distribusi terkait.';}
-    else if(minutes!==null&&minutes<5){cause='Gangguan baru terdeteksi';recommendation='Pantau 2–5 menit untuk membedakan gangguan sesaat dengan putus koneksi berkelanjutan.';}
-    return {hostid:h.hostid,name:h.name||h.host,ip:h.interfaces?.map(i=>i.ip||i.dns).find(Boolean)||'',since:started,durationMinutes:minutes,downCount30d:count,cause,recommendation};
-   });
-   const limit=Math.min(Math.max(Number(req.query.limit)||100,1),500);
-   let history=[],historyWarning='';
-   try{
-    const c=getZabbixConfig();
-    const pingItems=hosts.length?await zabbixCall(c,'item.get',{output:['itemid','hostid','key_','status','state'],hostids:hosts.map(h=>h.hostid),filter:{key_:['icmpping']}}):[];
-    const validItems=pingItems.filter(i=>i.status!=='1'&&i.state!=='1');
-    if(validItems.length){
-     const from=Math.floor(Date.now()/1000)-30*24*60*60;
-     const rows=await zabbixCall(c,'history.get',{output:['itemid','clock','value'],history:3,itemids:validItems.map(i=>i.itemid),time_from:from,sortfield:'clock',sortorder:'ASC',limit:100000});
-     const itemById=new Map(validItems.map(i=>[i.itemid,i])),hostById=new Map(hosts.map(h=>[h.hostid,h])),rowsByItem=new Map();
-     for(const row of rows){if(!rowsByItem.has(row.itemid))rowsByItem.set(row.itemid,[]);rowsByItem.get(row.itemid).push(row);}
-     for(const [itemid,events] of rowsByItem){
-      const host=hostById.get(itemById.get(itemid)?.hostid);if(!host)continue;
-      let previous=null,started=null;
-      for(const row of events){
-       const value=String(row.value),clock=Number(row.clock);
-       if(value==='0'&&previous!=='0')started=clock;
-       else if(value==='1'&&previous==='0'&&started!==null){
-        history.push({hostid:host.hostid,host_name:host.name||host.host,ip_address:(host.interfaces||[]).map(i=>i.ip||i.dns).find(Boolean)||'',status:'recovered',started_at:new Date(started*1000).toISOString().slice(0,19).replace('T',' '),ended_at:new Date(clock*1000).toISOString().slice(0,19).replace('T',' '),duration_seconds:Math.max(0,clock-started)});
-        started=null;
-       }
-       previous=value;
-      }
-      if(previous==='0'&&started!==null)history.push({hostid:host.hostid,host_name:host.name||host.host,ip_address:(host.interfaces||[]).map(i=>i.ip||i.dns).find(Boolean)||'',status:'down',started_at:new Date(started*1000).toISOString().slice(0,19).replace('T',' '),ended_at:null,duration_seconds:null});
+// Historical ICMP is refreshed in the background and cached. The UI never waits for
+// a 30-day Zabbix history query before receiving current status.
+let zabbixOutageHistoryCache={at:0,history:[],warning:'',refreshing:false};
+async function refreshZabbixOutageHistory(hosts) {
+ if(zabbixOutageHistoryCache.refreshing) return;
+ zabbixOutageHistoryCache.refreshing=true;
+ try {
+  const c=getZabbixConfig();
+  if(!c.url||!c.token) throw new Error('Zabbix belum dikonfigurasi');
+  const ids=(hosts||[]).map(h=>h.hostid);
+  if(!ids.length) {
+   zabbixOutageHistoryCache={at:Date.now(),history:[],warning:'',refreshing:false};
+   return;
+  }
+  const items=await zabbixCall(c,'item.get',{output:['itemid','hostid','key_','status','state'],hostids:ids,filter:{key_:['icmpping']}});
+  const valid=items.filter(i=>i.status!=='1'&&i.state!=='1');
+  const history=[];
+  if(valid.length) {
+   // Request bounded, recent history; this runs off the HTTP response path.
+   const from=Math.floor(Date.now()/1000)-30*24*60*60;
+   const rows=await zabbixCall(c,'history.get',{output:['itemid','clock','value'],history:3,itemids:valid.map(i=>i.itemid),time_from:from,sortfield:'clock',sortorder:'ASC',limit:100000});
+   const itemById=new Map(valid.map(i=>[i.itemid,i]));
+   const hostById=new Map(ids.map(id=>[String(id),(hosts||[]).find(h=>String(h.hostid)===String(id))]));
+   const grouped=new Map();
+   for(const row of rows){if(!grouped.has(row.itemid))grouped.set(row.itemid,[]);grouped.get(row.itemid).push(row);}
+   for(const [itemId,events] of grouped) {
+    const host=hostById.get(String(itemById.get(itemId)?.hostid));
+    if(!host) continue;
+    const ip=(host.interfaces||[]).map(i=>i.ip||i.dns).find(Boolean)||'';
+    let previous=null,started=null;
+    for(const row of events) {
+     const value=String(row.value),clock=Number(row.clock);
+     if(value==='0'&&previous!=='0') started=clock;
+     else if(value==='1'&&previous==='0'&&started!==null) {
+      history.push({hostid:host.hostid,host_name:host.name||host.host,ip_address:ip,status:'recovered',started_at:new Date(started*1000).toISOString().slice(0,19).replace('T',' '),ended_at:new Date(clock*1000).toISOString().slice(0,19).replace('T',' '),duration_seconds:Math.max(0,clock-started)});
+      started=null;
      }
-     history.sort((a,b)=>String(b.started_at).localeCompare(String(a.started_at)));
-     history=history.slice(0,limit);
+     previous=value;
     }
-   }catch(e){historyWarning='Riwayat ICMP Zabbix tidak dapat diambil: '+(e.message||'kesalahan API');}
-   res.json({ok:true,configured:!zbx.error,warning:[zbx.error,historyWarning].filter(Boolean).join(' | '),checkedAt:new Date().toISOString(),summary:{monitored:hosts.length,down:currentDown.length,up:hosts.filter(h=>h.icmpStatus==='available').length,unknown:hosts.filter(h=>h.icmpStatus==='unknown').length,downEvents30d:hosts.reduce((n,h)=>n+(Number(h.icmpDownCount30d)||0),0)},currentDown,history,analysis:currentDown.map(x=>({name:x.name,ip:x.ip,level:x.durationMinutes>=60?'critical':x.durationMinutes>=10?'warning':'info',finding:x.cause,recommendation:x.recommendation}))});
-  }));
- app.get('/api/traffic/history', auth, (req,res) => {
+    if(previous==='0'&&started!==null) history.push({hostid:host.hostid,host_name:host.name||host.host,ip_address:ip,status:'down',started_at:new Date(started*1000).toISOString().slice(0,19).replace('T',' '),ended_at:null,duration_seconds:null});
+   }
+  }
+  history.sort((a,b)=>String(b.started_at).localeCompare(String(a.started_at)));
+  zabbixOutageHistoryCache={at:Date.now(),history,warning:'',refreshing:false};
+ } catch(e) {
+  zabbixOutageHistoryCache={...zabbixOutageHistoryCache,warning:'Riwayat ICMP Zabbix tidak dapat diambil: '+(e.message||'kesalahan API'),refreshing:false};
+  console.error(new Date().toISOString(),'Zabbix outage history refresh:',e.message);
+ }
+}
+app.get('/api/monitoring/outages', auth, asyncRoute(async(req,res)=>{
+ const zbx=await getZabbixHostIndex(),hosts=zbx.hosts||[];
+ const currentDown=hosts.filter(h=>h.icmpStatus==='unavailable').map(h=>{
+  const raw=h.icmpOfflineSince;
+  const started=raw?(typeof raw==='number'||/^\\d+$/.test(String(raw))?new Date(Number(raw)*1000).toISOString().slice(0,19).replace('T',' '):String(raw).replace('T',' ').slice(0,19)):null;
+  const minutes=started?Math.max(0,Math.floor((Date.now()-new Date(started.replace(' ','T')+'Z').getTime())/60000)):null;
+  const count=Number(h.icmpDownCount30d)||0;
+  let cause='Perangkat tidak merespons ICMP',recommendation='Periksa daya perangkat, koneksi kabel/wireless, alamat IP, dan jalur jaringan.';
+  if(minutes!==null&&minutes>=60){cause='Gangguan berkepanjangan (lebih dari 1 jam)';recommendation='Prioritaskan pemeriksaan lokasi pelanggan dan jalur distribusi terkait.';}
+  else if(minutes!==null&&minutes<5){cause='Gangguan baru terdeteksi';recommendation='Pantau 2–5 menit untuk membedakan gangguan sesaat dengan putus koneksi berkelanjutan.';}
+  return {hostid:h.hostid,name:h.name||h.host,ip:h.interfaces?.map(i=>i.ip||i.dns).find(Boolean)||'',since:started,durationMinutes:minutes,downCount30d:count,cause,recommendation};
+ });
+ const limit=Math.min(Math.max(Number(req.query.limit)||100,1),500);
+ // Return cached history immediately; trigger a refresh asynchronously if stale.
+ if(Date.now()-zabbixOutageHistoryCache.at>5*60*1000) refreshZabbixOutageHistory(hosts).catch(()=>{});
+ const cachedHistory=zabbixOutageHistoryCache.history.slice(0,limit);
+ const warning=[zbx.error,zabbixOutageHistoryCache.warning].filter(Boolean).join(' | ');
+ res.json({ok:true,configured:!zbx.error,warning,historyLoading:zabbixOutageHistoryCache.refreshing||Date.now()-zabbixOutageHistoryCache.at>5*60*1000,checkedAt:new Date().toISOString(),summary:{monitored:hosts.length,down:currentDown.length,up:hosts.filter(h=>h.icmpStatus==='available').length,unknown:hosts.filter(h=>h.icmpStatus==='unknown').length,downEvents30d:hosts.reduce((n,h)=>n+(Number(h.icmpDownCount30d)||0),0)},currentDown,history:cachedHistory,analysis:currentDown.map(x=>({name:x.name,ip:x.ip,level:x.durationMinutes>=60?'critical':x.durationMinutes>=10?'warning':'info',finding:x.cause,recommendation:x.recommendation}))});
+}));
+app.get('/api/traffic/history', auth, (req,res) => {
  const routerId = Number(req.query.routerId);
  const period = ['hour','day','month'].includes(req.query.period) ? req.query.period : 'hour';
  const hours = period==='hour' ? 24 : period==='day' ? 24*7 : 24*30;
