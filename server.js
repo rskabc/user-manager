@@ -432,11 +432,34 @@ async function getZabbixHostIndex() {
     }
    }catch(historyError){console.error(new Date().toISOString(),'Zabbix ICMP history:',historyError.message);}
   }
+  // Count ICMP down events from Zabbix numeric history for the last 30 days.
+  // A down event is counted only on a transition from successful ping (1) to failed ping (0).
+  const downCountByHost=new Map();
+  const itemIds=pingItems.filter(item=>item.status!=='1'&&item.state!=='1').map(item=>item.itemid);
+  if(itemIds.length){
+   try{
+    const historyFrom=checkedAt-30*24*60*60;
+    const rows=await zabbixCall(c,'history.get',{output:['itemid','clock','value'],history:3,itemids:itemIds,time_from:historyFrom,sortfield:'clock',sortorder:'ASC',limit:100000});
+    const rowsByItem=new Map();
+    for(const row of rows){if(!rowsByItem.has(row.itemid))rowsByItem.set(row.itemid,[]);rowsByItem.get(row.itemid).push(row);}
+    for(const item of pingItems){
+     const events=rowsByItem.get(item.itemid)||[];
+     let previous=null,count=0;
+     for(const row of events){
+      const value=String(row.value);
+      if(value==='0'&&previous==='1')count++;
+      if(value==='0'||value==='1')previous=value;
+     }
+     downCountByHost.set(item.hostid,count);
+    }
+   }catch(historyError){console.error(new Date().toISOString(),'Zabbix ICMP down-count history:',historyError.message);}
+  }
   const indexedHosts=hosts.map(host=>{
    const ping=pingByHost.get(host.hostid);
    const fresh=ping&&Number(ping.lastclock)>0&&checkedAt-Number(ping.lastclock)<=300;
    const icmpStatus=host.status!=='0'?'disabled':!ping||!fresh?'unknown':ping.lastvalue==='1'?'available':ping.lastvalue==='0'?'unavailable':'unknown';
-   return {...host,icmpStatus,icmpLastCheck:ping?.lastclock||null,icmpOfflineSince:offlineSinceByHost.get(host.hostid)||null};
+   const interfaces=host.interfaces||[];
+   return {...host,interfaces,icmpStatus,icmpLastCheck:ping?.lastclock||null,icmpOfflineSince:offlineSinceByHost.get(host.hostid)||null,icmpDownCount30d:downCountByHost.get(host.hostid)||0};
   });
   zabbixHostCache={at:now,hosts:indexedHosts,error:''};
  } catch(e) { zabbixHostCache={at:now,hosts:[],error:e.message||'Zabbix tidak tersedia'}; }
@@ -521,7 +544,15 @@ app.get('/api/dashboard', auth, asyncRoute(async (req, res) => {
          const parsed = parseRatePair(q.rate);
          return { router: router.name, name: q.name || '', target: q.target || '', rate: q.rate || '0/0', rateRx: parsed.rx, rateTx: parsed.tx, rateTotal: parsed.total, maxLimit: q['max-limit'] || '' };
        }));
-     summary.routerStatus.push({ id: router.id, name: router.name, online: true, queues: data.queues.length, isolated: data.isolated.length });
+     const zbx=await getZabbixHostIndex();
+     const downClients=zbx.hosts.filter(host=>host.icmpStatus==='unavailable').map(host=>({
+       name:host.name||host.host||'Tanpa nama',
+       ip:(host.interfaces||[]).map(i=>i.ip).find(Boolean)||'—',
+       offlineSince:host.icmpOfflineSince||null,
+       downCount30d:Number(host.icmpDownCount30d)||0
+     })).sort((a,b)=>(Number(b.offlineSince)||0)-(Number(a.offlineSince)||0)).slice(0,5);
+     const downCount30d=zbx.hosts.reduce((sum,host)=>sum+(Number(host.icmpDownCount30d)||0),0);
+     summary.routerStatus.push({ id: router.id, name: router.name, online: true, queues: data.queues.length, isolated: data.isolated.length, downClients, downCount30d, zabbixError:zbx.error||'' });
    } catch (_) { summary.routerStatus.push({ id: router.id, name: router.name, online: false, queues: 0, isolated: 0 }); }
  }
  summary.isolatedToday = (historyToday.find(x => x.action === 'isolate') || {}).n || 0;
