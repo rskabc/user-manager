@@ -460,10 +460,11 @@ function enrichCustomerWithZabbix(customer, hosts, error) {
 app.get('/api/routers/:id/customers', auth, asyncRoute(async (req,res) => {
  const router = routerById(req.params.id);
  const data = await withRouter(router, async api => {
-   const [queues, isolated] = await Promise.all([
+   const [queues, isolationRows] = await Promise.all([
      api.write('/queue/simple/print'),
      api.write('/ip/firewall/address-list/print', ['?list='+ISOLATION_LIST])
    ]);
+   const isolated = isolationRows.filter(row => row.disabled !== 'true' && row.disabled !== true);
    return {queues, isolated};
  });
  const addresses = new Set(data.isolated.map(x=>String(x.address||'').split('/')[0]));
@@ -493,7 +494,8 @@ app.get('/api/dashboard', auth, asyncRoute(async (req, res) => {
    try {
      const data = await withRouter(router, async api => {
        const queues = await api.write('/queue/simple/print');
-       const isolated = await api.write('/ip/firewall/address-list/print', ['?list=' + ISOLATION_LIST]);
+       const isolationRows = await api.write('/ip/firewall/address-list/print', ['?list=' + ISOLATION_LIST]);
+       const isolated = isolationRows.filter(row => row.disabled !== 'true' && row.disabled !== true);
        return { queues, isolated };
      });
      summary.online++; summary.queues += data.queues.length; summary.isolatedNow += data.isolated.length;
