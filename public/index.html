@@ -157,6 +157,8 @@
 .customer-connection{display:flex;flex-direction:column;align-items:flex-start;gap:4px}.customer-connection small{font-size:10px;line-height:1.3;color:var(--muted);overflow-wrap:anywhere}
 
 .customer-filters{display:flex;flex-wrap:wrap;gap:7px;align-items:center}.customer-filters select,.customer-filters input{min-width:130px;max-width:210px;height:34px;font-size:11px;padding:6px 9px}.customer-filters #customerSearch{min-width:170px;flex:1 1 170px}.customer-pagination{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border);font-size:11px;color:var(--muted)}.customer-pagination .toolbar{display:flex;align-items:center;gap:7px}.customer-pagination .btn{padding:6px 9px;min-height:28px;font-size:10px}.customer-pagination button:disabled{opacity:.4;cursor:not-allowed}@media(max-width:760px){.customer-filters select,.customer-filters input{min-width:0;max-width:none;flex:1 1 42%}.customer-filters #customerSearch{min-width:100%}.customer-pagination{align-items:flex-start;flex-direction:column}.customer-pagination .toolbar{width:100%;justify-content:space-between}}
+
+.zabbix-offline-state{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:120px}.zabbix-offline-state small{font-size:9px;line-height:1.35;color:var(--muted);white-space:normal}
 </style>
 </head>
 <body>
@@ -368,7 +370,11 @@ function zabbixCustomerBadge(c){
  if(c.zabbixMatch==='duplicate')return '<span class="badge badge-red" title="Lebih dari satu host cocok">Duplikasi host</span>';
  if(c.zabbixMatch!=='matched')return '<span class="badge badge-gray">Belum diperiksa</span>';
  if(c.zabbixStatus==='available')return '<span class="badge badge-green" title="'+esc(c.zabbixHostName||'')+'">Online</span>';
- if(c.zabbixStatus==='unavailable')return '<span class="badge badge-red" title="'+esc(c.zabbixHostName||'')+'">Tidak tersedia</span>';
+ if(c.zabbixStatus==='unavailable'){
+  const since=c.zabbixOfflineSince?new Date(Number(c.zabbixOfflineSince)*1000):null;
+  const when=since&&!Number.isNaN(since.getTime())?since.toLocaleString('id-ID',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}):'waktu mulai tidak tersedia';
+  return '<div class="zabbix-offline-state"><span class="badge badge-red" title="'+esc(c.zabbixHostName||'')+'">Terputus</span><small>Sejak '+esc(when)+'</small></div>';
+ }
  if(c.zabbixStatus==='disabled')return '<span class="badge badge-gray" title="'+esc(c.zabbixHostName||'')+'">Host nonaktif</span>';
  return '<span class="badge badge-amber" title="'+esc(c.zabbixHostName||'')+'">Status unknown</span>';
 }
