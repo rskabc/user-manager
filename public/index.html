@@ -328,6 +328,9 @@
    <div class="panel"><div class="panel-head"><div><h2>Perangkat OLT</h2><p>Status dan ringkasan ONU terkini.</p></div><span class="badge badge-gray" id="hiosoChecked">Belum diperiksa</span></div>
     <div class="table-wrap"><table><thead><tr><th>OLT / IP key</th><th>Status SNMP</th><th>Identitas perangkat</th><th>ONU online</th><th>ONU offline</th><th>Polling</th><th>Aksi</th></tr></thead><tbody id="hiosoRows"><tr><td colspan="7" class="empty">Belum ada OLT. Tambahkan konfigurasi di atas.</td></tr></tbody></table></div>
    </div>
+   <div class="panel"><div class="panel-head"><div><h2>Korelasi IP lintas sumber</h2><p>IP adalah kunci pencocokan antara host Zabbix, router MikroTik, dan OLT HIOSO.</p></div></div>
+    <div class="table-wrap"><table><thead><tr><th>IP key</th><th>Zabbix</th><th>MikroTik</th><th>HIOSO OLT</th></tr></thead><tbody id="ipMapRows"><tr><td colspan="4" class="empty">Memuat pemetaan IP…</td></tr></tbody></table></div>
+   </div>
    <div class="panel"><div class="panel-head"><div><h2>ONU yang terdeteksi</h2><p>Optical power dan serial number muncul jika OID tersedia di firmware perangkat.</p></div><input id="hiosoSearch" placeholder="Cari nama / serial / PON" style="max-width:230px"></div>
     <div class="table-wrap"><table><thead><tr><th>OLT</th><th>IP key</th><th>PON / ONU</th><th>Nama</th><th>Serial number</th><th>Status</th><th>RX (dBm)</th><th>Jarak</th></tr></thead><tbody id="hiosoOnuRows"><tr><td colspan="8" class="empty">Belum ada data ONU.</td></tr></tbody></table></div>
    </div>
@@ -464,6 +467,11 @@ async function loadHioso(){
   $('#hiosoOnuOffline').textContent=olts.reduce((n,o)=>n+(Number(o.onu_offline)||0),0);
   $('#hiosoChecked').textContent='Diperiksa '+new Date(d.checkedAt).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
   body.innerHTML=olts.length?olts.map(o=>'<tr><td><strong>'+esc(o.name)+'</strong><small>IP key: '+esc(o.host)+'</small></td><td><span class="badge '+(o.status==='online'?'badge-green':o.status==='offline'?'badge-red':'badge-gray')+'">'+esc(o.status||'unknown')+'</span>'+(o.error?'<small>'+esc(o.error)+'</small>':'')+'</td><td>'+esc(o.sys_name||'—')+'<small>'+esc(o.sys_descr||'')+'</small></td><td>'+Number(o.onu_online||0)+'</td><td>'+Number(o.onu_offline||0)+'</td><td>'+esc(o.sampled_at||'—')+'</td><td><button class="btn btn-danger" data-delete-olt="'+o.id+'">Hapus</button></td></tr>').join(''):'<tr><td colspan="7" class="empty">Belum ada OLT terdaftar.</td></tr>';
+  try{
+   const m=await api('/integrations/ip-map');
+   const mapRows=$('#ipMapRows');
+   mapRows.innerHTML=(m.entries||[]).length?(m.entries||[]).map(x=>'<tr><td><strong>'+esc(x.ip)+'</strong></td><td>'+((x.zabbix||[]).map(v=>esc(v.name)+' <small>('+esc(v.status)+')</small>').join('<br>')||'—')+'</td><td>'+((x.mikrotik||[]).map(v=>esc(v.name)).join('<br>')||'—')+'</td><td>'+((x.hioso||[]).map(v=>esc(v.name)+' <small>('+esc(v.status)+')</small>').join('<br>')||'—')+'</td></tr>').join(''):'<tr><td colspan="4" class="empty">Belum ada IP yang terdaftar dari ketiga sumber.</td></tr>');
+  }catch(e){$('#ipMapRows').innerHTML='<tr><td colspan="4" class="empty">'+esc(e.message)+'</td></tr>';}
   const onus=olts.flatMap(o=>(o.details?.onus||[]).map(u=>({...u,oltName:o.name,host:o.host})));
   const filter=($('#hiosoSearch')?.value||'').toLowerCase();
   const shown=onus.filter(u=>[u.oltName,u.host,u.name,u.serial,u.port,u.onuId].some(v=>String(v||'').toLowerCase().includes(filter)));
