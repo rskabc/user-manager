@@ -455,7 +455,8 @@ async function getZabbixHostIndex() {
    const fresh=ping&&Number(ping.lastclock)>0&&checkedAt-Number(ping.lastclock)<=300;
    const icmpStatus=host.status!=='0'?'disabled':!ping||!fresh?'unknown':ping.lastvalue==='1'?'available':ping.lastvalue==='0'?'unavailable':'unknown';
    const interfaces=host.interfaces||[];
-   const savedState=db.prepare('SELECT down_since FROM zabbix_host_state WHERE hostid=?').get(String(host.hostid));\n   return {...host,interfaces,icmpStatus,icmpLastCheck:ping?.lastclock||null,icmpOfflineSince:offlineSinceByHost.get(host.hostid)||savedState?.down_since||null,icmpDownCount30d:downCountByHost.get(host.hostid)||0};
+   const savedState=db.prepare('SELECT down_since FROM zabbix_host_state WHERE hostid=?').get(String(host.hostid));
+    return {...host,interfaces,icmpStatus,icmpLastCheck:ping?.lastclock||null,icmpOfflineSince:offlineSinceByHost.get(host.hostid)||savedState?.down_since||null,icmpDownCount30d:downCountByHost.get(host.hostid)||0};
   });
   zabbixHostCache={at:now,hosts:indexedHosts,error:''};
  } catch(e) { zabbixHostCache={at:now,hosts:[],error:e.message||'Zabbix tidak tersedia'}; }
