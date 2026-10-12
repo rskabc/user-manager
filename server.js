@@ -215,8 +215,21 @@ app.get('/api/integrations/zabbix/hosts',auth,asyncRoute(async(req,res)=>{
  const groups=await zabbixCall(c,'hostgroup.get',{output:['groupid','name'],filter:{name:[c.hostgroup]}});
  const groupIds=groups.map(g=>g.groupid);
  if(!groupIds.length) return res.json({hostgroup:c.hostgroup,hosts:[],count:0,warning:'Host group belum ditemukan di Zabbix.'});
- const hosts=await zabbixCall(c,'host.get',{output:['hostid','host','name','status','available'],groupids:groupIds,selectInterfaces:['ip','dns','available','type']});
- res.json({hostgroup:c.hostgroup,count:hosts.length,hosts:hosts.map(h=>({hostid:h.hostid,host:h.host,name:h.name,status:h.status==='0'?'enabled':'disabled',interfaces:(h.interfaces||[]).map(i=>({ip:i.ip,dns:i.dns,available:i.available})),available:(h.interfaces||[]).some(i=>i.available==='1')?'available':(h.interfaces||[]).some(i=>i.available==='2')?'unavailable':'unknown'}))});
+ const hosts=await zabbixCall(c,'host.get',{output:['hostid','host','name','status'],groupids:groupIds,selectInterfaces:['ip','dns']});
+ const pingItems=hosts.length?await zabbixCall(c,'item.get',{output:['itemid','hostid','key_','lastvalue','lastclock','status','state'],hostids:hosts.map(h=>h.hostid),filter:{key_:['icmpping']}}):[];
+ const pingByHost=new Map();
+ for(const item of pingItems){
+   if(item.status==='1'||item.state==='1') continue;
+   const previous=pingByHost.get(item.hostid);
+   if(!previous||Number(item.lastclock)>Number(previous.lastclock)) pingByHost.set(item.hostid,item);
+ }
+ const now=Math.floor(Date.now()/1000);
+ res.json({hostgroup:c.hostgroup,count:hosts.length,hosts:hosts.map(h=>{
+   const item=pingByHost.get(h.hostid);
+   const fresh=item&&Number(item.lastclock)>0&&(now-Number(item.lastclock)<=300);
+   const icmpStatus=h.status!=='0'?'disabled':!item?'unknown':!fresh?'unknown':item.lastvalue==='1'?'connected':item.lastvalue==='0'?'disconnected':'unknown';
+   return {hostid:h.hostid,host:h.host,name:h.name,status:h.status==='0'?'enabled':'disabled',interfaces:(h.interfaces||[]).map(i=>({ip:i.ip,dns:i.dns})),icmpStatus,icmpLastCheck:item?.lastclock?new Date(Number(item.lastclock)*1000).toISOString():null,icmpValue:item?.lastvalue??null};
+ })});
 }));
 
 app.post('/api/login', (req, res) => {
