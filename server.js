@@ -499,12 +499,35 @@ app.get('/api/dashboard', auth, asyncRoute(async (req, res) => {
        return { queues, isolated };
      });
      summary.online++; summary.queues += data.queues.length; summary.isolatedNow += data.isolated.length;
-     summary.traffic.push(...data.queues.slice(0, 100).map(q => ({ router: router.name, name: q.name || '', target: q.target || '', rate: q.rate || '0/0', maxLimit: q['max-limit'] || '' })));
+     // Dashboard traffic should represent customer queues, not aggregate/parent queues.
+     const parentNames = new Set(data.queues.map(q => String(q.parent || '').trim()).filter(p => p && p !== 'none'));
+     const parseRatePair = value => {
+       const parts = String(value || '0/0').split('/');
+       const parsePart = part => {
+         const n = Number(String(part || '0').replace(/[^0-9.]/g, ''));
+         if (!Number.isFinite(n)) return 0;
+         if (/g/i.test(part)) return n * 1e9;
+         if (/m/i.test(part)) return n * 1e6;
+         if (/k/i.test(part)) return n * 1e3;
+         return n;
+       };
+       return { rx: parsePart(parts[0]), tx: parsePart(parts[1]), total: parsePart(parts[0]) + parsePart(parts[1]) };
+     };
+     summary.traffic.push(...data.queues
+       .filter(q => q.disabled !== 'true' && q.disabled !== true)
+       .filter(q => !parentNames.has(String(q.name || '').trim()))
+       .filter(q => !/internet[- ]exchange/i.test(String(q.name || '')))
+       .map(q => {
+         const parsed = parseRatePair(q.rate);
+         return { router: router.name, name: q.name || '', target: q.target || '', rate: q.rate || '0/0', rateRx: parsed.rx, rateTx: parsed.tx, rateTotal: parsed.total, maxLimit: q['max-limit'] || '' };
+       }));
      summary.routerStatus.push({ id: router.id, name: router.name, online: true, queues: data.queues.length, isolated: data.isolated.length });
    } catch (_) { summary.routerStatus.push({ id: router.id, name: router.name, online: false, queues: 0, isolated: 0 }); }
  }
  summary.isolatedToday = (historyToday.find(x => x.action === 'isolate') || {}).n || 0;
  summary.restoredToday = (historyToday.find(x => x.action === 'restore') || {}).n || 0;
+ summary.traffic.sort((a,b)=>(Number(b.rateTotal)||0)-(Number(a.rateTotal)||0));
+ summary.traffic = summary.traffic.slice(0, 8);
  res.json(summary);
 }));
 
