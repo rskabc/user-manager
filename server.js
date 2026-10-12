@@ -83,6 +83,17 @@ CREATE TABLE IF NOT EXISTS sync_changes (
  FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_sync_changes_detected ON sync_changes(detected_at DESC);
+CREATE TABLE IF NOT EXISTS zabbix_outage_events (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, hostid TEXT NOT NULL, host_name TEXT NOT NULL DEFAULT '',
+ ip_address TEXT NOT NULL DEFAULT '', status TEXT NOT NULL CHECK(status IN ('down','recovered')),
+ started_at TEXT NOT NULL, ended_at TEXT, duration_seconds INTEGER,
+ detected_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_zabbix_outage_started ON zabbix_outage_events(started_at DESC);
+CREATE TABLE IF NOT EXISTS zabbix_host_state (
+ hostid TEXT PRIMARY KEY, host_name TEXT NOT NULL DEFAULT '', ip_address TEXT NOT NULL DEFAULT '',
+ is_down INTEGER NOT NULL DEFAULT 0, down_since TEXT, last_seen TEXT NOT NULL DEFAULT (datetime('now'))
+);
 CREATE TABLE IF NOT EXISTS router_sync_status (
  router_id INTEGER PRIMARY KEY,
  status TEXT NOT NULL DEFAULT 'pending',
@@ -454,6 +465,30 @@ async function getZabbixHostIndex() {
     }
    }catch(historyError){console.error(new Date().toISOString(),'Zabbix ICMP down-count history:',historyError.message);}
   }
+  // Persist ICMP transitions to provide outage history between page refreshes.
+  const upsertState=db.prepare("INSERT INTO zabbix_host_state(hostid,host_name,ip_address,is_down,down_since,last_seen) VALUES(?,?,?,?,?,datetime('now')) ON CONFLICT(hostid) DO UPDATE SET host_name=excluded.host_name,ip_address=excluded.ip_address,is_down=excluded.is_down,down_since=excluded.down_since,last_seen=datetime('now')");
+  const previousState=db.prepare('SELECT * FROM zabbix_host_state WHERE hostid=?');
+  const insertOutage=db.prepare("INSERT INTO zabbix_outage_events(hostid,host_name,ip_address,status,started_at,ended_at,duration_seconds) VALUES(?,?,?,?,?,?,?)");
+  for(const host of hosts){
+   const ping=pingByHost.get(host.hostid),fresh=ping&&Number(ping.lastclock)>0&&checkedAt-Number(ping.lastclock)<=300;
+   const isDown=host.status==='0'&&!!ping&&!!fresh&&ping.lastvalue==='0';
+   const previous=previousState.get(String(host.hostid)),hostName=host.name||host.host||host.hostid;
+   const ipAddress=(host.interfaces||[]).map(i=>i.ip||i.dns).find(Boolean)||'';
+   const nowIso=new Date().toISOString().slice(0,19).replace('T',' ');
+   if(isDown&&(!previous||!previous.is_down)){
+    const start=offlineSinceByHost.get(host.hostid),startIso=start?new Date(Number(start)*1000).toISOString().slice(0,19).replace('T',' '):nowIso;
+    insertOutage.run(String(host.hostid),hostName,ipAddress,'down',startIso,null,null);
+    upsertState.run(String(host.hostid),hostName,ipAddress,1,startIso);
+   }else if(!isDown&&previous&&previous.is_down){
+    const ended=nowIso,started=previous.down_since||nowIso;
+    const duration=Math.max(0,Math.floor((new Date(ended+'Z')-new Date(started.replace(' ','T')+'Z'))/1000));
+    insertOutage.run(String(host.hostid),hostName,ipAddress,'recovered',started,ended,duration);
+    upsertState.run(String(host.hostid),hostName,ipAddress,0,null);
+   }else{
+    const startValue=isDown?(previous?.down_since||new Date(Number(offlineSinceByHost.get(host.hostid)||checkedAt)*1000).toISOString().slice(0,19).replace('T',' ')):null;
+    upsertState.run(String(host.hostid),hostName,ipAddress,isDown?1:0,startValue);
+   }
+  }
   const indexedHosts=hosts.map(host=>{
    const ping=pingByHost.get(host.hostid);
    const fresh=ping&&Number(ping.lastclock)>0&&checkedAt-Number(ping.lastclock)<=300;
@@ -494,6 +529,23 @@ app.get('/api/routers/:id/customers', auth, asyncRoute(async (req,res) => {
  const zbx=await getZabbixHostIndex();
  res.json(data.queues.map(q=>enrichCustomerWithZabbix(queueCustomer(q,router.id,router.name,addresses),zbx.hosts,zbx.error)));
 }));
+app.get('/api/monitoring/outages', auth, asyncRoute(async(req,res)=>{
+  const zbx=await getZabbixHostIndex(),hosts=zbx.hosts||[];
+  const currentDown=hosts.filter(h=>h.icmpStatus==='unavailable').map(h=>{
+   const state=db.prepare('SELECT down_since FROM zabbix_host_state WHERE hostid=?').get(String(h.hostid));
+   const started=state?.down_since||(h.icmpOfflineSince?new Date(Number(h.icmpOfflineSince)*1000).toISOString().slice(0,19).replace('T',' '):null);
+   const minutes=started?Math.max(0,Math.floor((Date.now()-new Date(started.replace(' ','T')+'Z').getTime())/60000)):null;
+   const count=db.prepare("SELECT COUNT(*) AS n FROM zabbix_outage_events WHERE hostid=? AND status='down' AND started_at>=datetime('now','-30 days')").get(String(h.hostid)).n;
+   let cause='Perangkat tidak merespons ICMP',recommendation='Periksa daya perangkat, koneksi kabel/wireless, alamat IP, dan jalur jaringan.';
+   if(minutes!==null&&minutes>=60){cause='Gangguan berkepanjangan (lebih dari 1 jam)';recommendation='Prioritaskan pemeriksaan lokasi pelanggan dan jalur distribusi terkait.';}
+   else if(minutes!==null&&minutes<5){cause='Gangguan baru terdeteksi';recommendation='Pantau 2–5 menit untuk membedakan gangguan sesaat dengan putus koneksi berkelanjutan.';}
+   return {hostid:h.hostid,name:h.name||h.host,ip:h.interfaces?.map(i=>i.ip||i.dns).find(Boolean)||'',since:started,durationMinutes:minutes,downCount30d:count,cause,recommendation};
+  });
+  const limit=Math.min(Math.max(Number(req.query.limit)||100,1),500);
+  const history=db.prepare("SELECT * FROM zabbix_outage_events ORDER BY id DESC LIMIT ?").all(limit);
+  const counts=db.prepare("SELECT SUM(CASE WHEN status='down' THEN 1 ELSE 0 END) AS down_events FROM zabbix_outage_events WHERE started_at>=datetime('now','-30 days')").get();
+  res.json({ok:true,configured:!zbx.error,warning:zbx.error||'',checkedAt:new Date().toISOString(),summary:{monitored:hosts.length,down:currentDown.length,up:hosts.filter(h=>h.icmpStatus==='available').length,unknown:hosts.filter(h=>h.icmpStatus==='unknown').length,downEvents30d:counts.down_events||0},currentDown,history,analysis:currentDown.map(x=>({name:x.name,ip:x.ip,level:x.durationMinutes>=60?'critical':x.durationMinutes>=10?'warning':'info',finding:x.cause,recommendation:x.recommendation}))});
+ }));
 app.get('/api/traffic/history', auth, (req,res) => {
  const routerId = Number(req.query.routerId);
  const period = ['hour','day','month'].includes(req.query.period) ? req.query.period : 'hour';
