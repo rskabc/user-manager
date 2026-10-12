@@ -14,7 +14,36 @@
 @media(max-width:720px){.sidebar{display:none}.main{margin-left:0;padding-bottom:68px}.topbar{height:56px;padding:0 15px}.content{padding:16px 13px}.page-head{margin-bottom:15px}.page-head h1{font-size:20px}.page-head p{font-size:12px}.cards{gap:9px;margin-bottom:13px}.stat{padding:12px;border-radius:11px}.stat-top{font-size:10px;align-items:flex-start}.stat-icon{width:25px;height:25px;font-size:12px}.stat-num{font-size:23px;margin-top:9px}.stat-foot{font-size:10px}.panel{border-radius:11px;margin-bottom:13px}.panel-head{padding:13px}.panel-body{padding:12px}.two-col{grid-template-columns:1fr;gap:0}.top-right .top-user{display:none}.mobile-nav{position:fixed;display:grid;grid-template-columns:repeat(4,1fr);bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--line);padding:5px 5px calc(5px + env(safe-area-inset-bottom));z-index:10}.mobile-nav button{border:0;background:transparent;color:#8490a4;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;font-size:10px;font-weight:700}.mobile-nav button.active{color:var(--blue)}.mobile-nav span{font-size:17px}.toolbar{width:100%}.toolbar select,.toolbar input{flex:1;min-width:0}.page-head>.btn{font-size:11px;padding:8px}.panel-head{align-items:flex-start}.modal-backdrop{padding:10px;align-items:end}.modal{border-radius:16px 16px 10px 10px;max-height:92dvh}.field{margin:10px 0}.field input,.field select{min-height:42px}.actions .btn{font-size:10px}.table-wrap{margin:0 -12px;width:calc(100% + 24px)}.table-wrap table{min-width:600px}.router-item{padding:9px}.router-info small{overflow-wrap:anywhere}.footer-note{padding-bottom:8px}}
 @media(max-width:360px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.stat-top{font-size:9px}.stat-num{font-size:21px}.content{padding-left:10px;padding-right:10px}.page-head h1{font-size:18px}}
 .chart-wrap{width:100%;min-width:0;position:relative}.chart-wrap canvas{display:block;max-width:100%}.chart-legend{display:flex;gap:16px;align-items:center;font-size:11px;color:var(--muted);margin-bottom:12px}.chart-legend span{display:flex;align-items:center;gap:6px}.chart-legend i{display:inline-block;width:9px;height:9px;border-radius:50%}.legend-up{background:#315efb}.legend-down{background:#16a36a}.muted-small{font-size:11px;color:var(--muted)}#customerSearch{min-width:190px}
-#page-customers .cards{gap:12px}
+#page-customers .content{max-width:none;padding:16px 20px}
+#page-customers .page-head{margin-bottom:12px}
+#page-customers .page-head h1{font-size:20px}
+#page-customers .cards{gap:9px;margin-bottom:12px}
+#page-customers .stat{padding:11px 13px;min-height:82px}
+#page-customers .stat-num{font-size:22px;margin-top:6px}
+#page-customers .stat-foot{font-size:10px;margin-top:4px}
+#page-customers .panel{margin-bottom:10px}
+#page-customers .panel-head{padding:11px 13px}
+#page-customers .panel-head h2{font-size:13px}
+#page-customers .panel-head p{font-size:10px}
+#page-customers .table-wrap{overflow-x:auto;max-width:100%}
+#page-customers .customer-table{min-width:0;width:100%;table-layout:fixed}
+#page-customers .customer-table th{padding:8px 7px;font-size:9px;letter-spacing:.25px;white-space:normal}
+#page-customers .customer-table td{padding:8px 7px;font-size:11px;overflow-wrap:anywhere}
+#page-customers .customer-table th:first-child,#page-customers .customer-table td:first-child{width:28px}
+#page-customers .customer-table th:nth-child(2){width:17%}
+#page-customers .customer-table th:nth-child(3){width:18%}
+#page-customers .customer-table th:nth-child(4){width:9%}
+#page-customers .customer-table th:nth-child(5){width:11%}
+#page-customers .customer-table th:nth-child(6),#page-customers .customer-table th:nth-child(7){width:9%}
+#page-customers .customer-table th:nth-child(8){width:12%}
+#page-customers .customer-table th:nth-child(9){width:13%}
+#customerRows td:nth-child(2) strong{max-width:none;font-size:11px}
+#customerRows td:nth-child(2) small{font-size:9px;overflow-wrap:anywhere}
+#customerRows .actions{gap:4px}
+#customerRows .actions .btn{padding:5px 7px;min-height:27px;font-size:10px}
+#customerRows .badge{font-size:9px;padding:3px 6px}
+@media(max-width:1050px){#page-customers .customer-table{min-width:850px;table-layout:auto}}
+@media(max-width:760px){#page-customers .content{padding:12px 9px}#page-customers .stat{padding:10px;min-height:80px}#page-customers .stat-num{font-size:20px}#page-customers .customer-table{min-width:850px}#customerRows td:nth-child(2) strong{max-width:140px}}
 #page-customers .stat{padding:16px;min-height:104px}
 #page-customers .panel{min-width:0}
 #page-customers .table-wrap{max-width:100%;overflow-x:auto;border-radius:0 0 12px 12px}
@@ -278,6 +307,7 @@ let customerData=[], selectedCustomers=new Set(), trafficChartData=[];
  const customerTests={};
  async function testCustomer(c){const key=String(c.routerId)+'|'+c.address;if(!c.address){toast('Pelanggan tidak memiliki alamat IP yang dapat dites.',true);return;}customerTests[key]={loading:true};renderCustomers();try{const d=await api('/routers/'+c.routerId+'/customers/test',{method:'POST',body:JSON.stringify({address:c.address})});customerTests[key]={loading:false,connected:!!d.connected,detail:d.detail+' · '+d.received+'/'+d.sent+' balasan'};}catch(e){customerTests[key]={loading:false,connected:false,detail:e.message||'Pengujian gagal'};}renderCustomers();}
 function formatRate(bits){if(!Number.isFinite(Number(bits))||Number(bits)<=0)return '0 Mbps';const n=Number(bits)/1000000;return (n>=10?n.toFixed(1):n.toFixed(2))+' Mbps';}
+function formatLimit(limit){const raw=String(limit||'').trim();if(!raw||raw==='—')return '—';return raw.split('/').map(part=>{const m=part.trim().match(/^([0-9.]+)\s*([kKmMgG]?)\s*(?:bps)?$/);if(!m)return part.trim();let value=Number(m[1]);const unit=m[2].toLowerCase();if(unit==='k')value*=1000;else if(unit==='m')value*=1000000;else if(unit==='g')value*=1000000000;const mbps=value/1000000;return (mbps>=10?mbps.toFixed(1):mbps.toFixed(2))+' Mbps';}).join(' / ');}
 function customerConnectionBadge(c){const t=customerTests[String(c.routerId)+'|'+c.address];if(!t)return '<span class="badge badge-gray">Belum dites</span>';if(t.loading)return '<span class="badge badge-amber">Menguji…</span>';return '<div class="customer-connection">'+(t.connected?'<span class="badge badge-green">Tersambung</span>':'<span class="badge badge-red">Terputus</span>')+'<small>'+esc(t.detail||'')+'</small></div>';}
  function customerBadge(c){if(c.status==='isolated')return '<span class="badge badge-red">Terisolasi</span>';if(c.status==='disabled')return '<span class="badge badge-gray">Nonaktif</span>';return '<span class="badge badge-green">Aktif</span>';}
 function zabbixCustomerBadge(c){
@@ -290,14 +320,14 @@ function zabbixCustomerBadge(c){
  if(c.zabbixStatus==='disabled')return '<span class="badge badge-gray" title="'+esc(c.zabbixHostName||'')+'">Host nonaktif</span>';
  return '<span class="badge badge-amber" title="'+esc(c.zabbixHostName||'')+'">Status unknown</span>';
 }
-function visibleCustomers(){const q=($('#customerSearch').value||'').trim().toLowerCase();return customerData.filter(c=>!q||[c.name,c.target,c.address,c.queueId,c.routerName].some(v=>String(v||'').toLowerCase().includes(q)));}
+function visibleCustomers(){const q=($('#customerSearch').value||'').trim().toLowerCase();return customerData.filter(c=>!(/internet[- ]exchange/i.test(String(c.name||''))||/internet[- ]exchange/i.test(String(c.queueId||'')))).filter(c=>!q||[c.name,c.target,c.address,c.queueId,c.routerName].some(v=>String(v||'').toLowerCase().includes(q)));}
 function renderCustomers(){
  const rows=$('#customerRows'), visible=visibleCustomers();
  const counts={total:customerData.length,active:customerData.filter(c=>c.status==='active').length,isolated:customerData.filter(c=>c.status==='isolated').length,disabled:customerData.filter(c=>c.status==='disabled').length};
  $('#customerTotal').textContent=counts.total;$('#customerActive').textContent=counts.active;$('#customerIsolated').textContent=counts.isolated;$('#customerDisabled').textContent=counts.disabled;
  $('#customerSelectedCount').textContent=selectedCustomers.size+' dipilih';
  if(!visible.length){rows.innerHTML='<tr><td colspan="9" class="empty">Tidak ada pelanggan yang cocok atau pilih router.</td></tr>';return;}
- rows.innerHTML=visible.map((c,index)=>'<tr><td><input type="checkbox" class="customer-check" data-key="'+esc(c.address||c.queueId)+'" '+(selectedCustomers.has(c.address||c.queueId)?'checked':'')+' aria-label="Pilih pelanggan"></td><td><strong>'+esc(c.name||'(tanpa nama)')+'</strong><small>'+esc(c.routerName)+' · '+esc(c.queueId)+'</small></td><td>'+esc(c.target||'—')+'</td><td>'+customerBadge(c)+'</td><td>'+zabbixCustomerBadge(c)+'</td><td>'+formatRate(c.rxBps)+'</td><td>'+formatRate(c.txBps)+'</td><td>'+esc(c.maxLimit||'—')+'</td><td><div class="actions"><button class="btn btn-soft" data-test-customer="'+index+'">Test</button><button class="btn '+(c.status==='isolated'?'btn-soft':'btn-danger')+'" data-customer-action="'+(c.status==='isolated'?'restore':'isolate')+'" data-customer-index="'+index+'">'+(c.status==='isolated'?'Pulihkan':'Isolasi')+'</button></div></td></tr>').join('');
+ rows.innerHTML=visible.map((c,index)=>'<tr><td><input type="checkbox" class="customer-check" data-key="'+esc(c.address||c.queueId)+'" '+(selectedCustomers.has(c.address||c.queueId)?'checked':'')+' aria-label="Pilih pelanggan"></td><td><strong>'+esc(c.name||'(tanpa nama)')+'</strong><small>'+esc(c.routerName)+' · '+esc(c.queueId)+'</small></td><td>'+esc(c.target||'—')+'</td><td>'+customerBadge(c)+'</td><td>'+zabbixCustomerBadge(c)+'</td><td>'+formatRate(c.rxBps)+'</td><td>'+formatRate(c.txBps)+'</td><td>'+esc(formatLimit(c.maxLimit||'—'))+'</td><td><div class="actions"><button class="btn btn-soft" data-test-customer="'+index+'">Test</button><button class="btn '+(c.status==='isolated'?'btn-soft':'btn-danger')+'" data-customer-action="'+(c.status==='isolated'?'restore':'isolate')+'" data-customer-index="'+index+'">'+(c.status==='isolated'?'Pulihkan':'Isolasi')+'</button></div></td></tr>').join('');
  Array.from(document.querySelectorAll('#customerRows [data-customer-action]')).forEach(el=>el.onclick=()=>{const c=visible[Number(el.dataset.customerIndex)];if(c)customerAction(c.address,c.name,el.dataset.customerAction);});
   Array.from(document.querySelectorAll('#customerRows [data-test-customer]')).forEach(el=>el.onclick=()=>{const c=visible[Number(el.dataset.testCustomer)];if(c)testCustomer(c);});
  $$('.customer-check').forEach(el=>el.onchange=()=>{const key=el.dataset.key;if(el.checked)selectedCustomers.add(key);else selectedCustomers.delete(key);$('#customerSelectedCount').textContent=selectedCustomers.size+' dipilih';});
