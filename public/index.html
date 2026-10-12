@@ -202,6 +202,17 @@
  @media(max-width:720px){.monitoring-analysis{grid-template-columns:minmax(0,1fr)}#page-monitoring .page-head h1{font-size:19px}#page-monitoring .table-wrap table{min-width:680px}}
  .zabbix-offline-state{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:120px}.zabbix-offline-state small{font-size:9px;line-height:1.35;color:var(--muted);white-space:normal}
 .router-item-expanded{align-items:flex-start}.router-item-expanded .router-info{min-width:0;flex:1}.router-zabbix-summary{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px}.router-down-list{margin-top:8px;border-top:1px solid var(--border,#e5eaf2);padding-top:5px}.router-down-row{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--border,#e5eaf2)}.router-down-row:last-child{border-bottom:0}.router-down-row>span{display:flex;flex-direction:column;gap:3px;min-width:0}.router-down-row strong{font-size:12px;overflow-wrap:anywhere}.router-down-row small{font-size:11px;color:var(--muted,#64748b)}.router-down-row>span:last-child{text-align:right;white-space:nowrap}
+
+/* Navigation segmented by operational area */
+.sidebar{overflow-y:auto;overflow-x:hidden;gap:0;scrollbar-width:thin;scrollbar-color:#34435e transparent}
+.nav-group{padding:0 0 8px;margin:0 0 5px;border-bottom:1px solid #26344d}
+.nav-group:last-of-type{border-bottom:0;margin-bottom:0;padding-bottom:0}
+.side-label{font-size:9px;letter-spacing:1.25px;color:#8190aa;padding:13px 11px 6px}
+.nav-btn{font-size:12px;padding:9px 11px;margin:2px 0;min-height:36px;transition:background .15s ease,color .15s ease}
+.nav-btn.active{box-shadow:inset 3px 0 0 #7894ff;background:#263653;color:#fff}
+.nav-subitem{margin-left:10px;width:calc(100% - 10px);padding-left:10px;border-left:1px solid #43516b;border-radius:0 8px 8px 0;font-size:11px;color:#98a8c2}
+.nav-subitem .nav-icon{font-size:12px;width:16px}
+@media(max-width:720px){.sidebar{display:none}}
 </style>
 </head>
 <body>
@@ -214,15 +225,30 @@
 </div>
 <div id="appView" class="app hidden">
  <aside class="sidebar"><div class="side-brand"><div class="brand-mark">U</div><div>User Manager<small style="display:block;font-size:10px;color:#8492ad;font-weight:500">MIKROTIK CONTROL</small></div></div>
-  <div class="side-label">MENU UTAMA</div>
-  <button class="nav-btn active" data-page="dashboard"><span class="nav-icon">▦</span>Dashboard</button>
-  <button class="nav-btn" data-page="routers"><span class="nav-icon">⌘</span>Router MikroTik</button>
-  <button class="nav-btn" data-page="zabbix"><span class="nav-icon">◉</span>Integrasi Zabbix</button>
-  <button class="nav-btn" data-page="customers"><span class="nav-icon">◎</span>Pelanggan</button>
-  <button class="nav-btn" data-page="monitoring"><span class="nav-icon">◉</span>Monitoring</button><button class="nav-btn nav-subitem" data-page="monitoring-history"><span class="nav-icon">◷</span>Riwayat gangguan</button>
-  <button class="nav-btn" data-page="traffic"><span class="nav-icon">⌁</span>Grafik Trafik</button>
-  <button class="nav-btn" data-page="isolation"><span class="nav-icon">⊘</span>Isolasi Pelanggan</button>
-  <button class="nav-btn" data-page="history"><span class="nav-icon">◷</span>Riwayat & Audit</button>
+  <div class="nav-group">
+   <div class="side-label">RINGKASAN</div>
+   <button class="nav-btn active" data-page="dashboard"><span class="nav-icon">▦</span>Dashboard</button>
+  </div>
+  <div class="nav-group">
+   <div class="side-label">INFRASTRUKTUR</div>
+   <button class="nav-btn" data-page="routers"><span class="nav-icon">⌘</span>Router MikroTik</button>
+   <button class="nav-btn" data-page="zabbix"><span class="nav-icon">◉</span>Integrasi Zabbix</button>
+  </div>
+  <div class="nav-group">
+   <div class="side-label">PELANGGAN & LAYANAN</div>
+   <button class="nav-btn" data-page="customers"><span class="nav-icon">◎</span>Pelanggan</button>
+   <button class="nav-btn" data-page="isolation"><span class="nav-icon">⊘</span>Isolasi Pelanggan</button>
+  </div>
+  <div class="nav-group">
+   <div class="side-label">MONITORING & ANALISIS</div>
+   <button class="nav-btn" data-page="monitoring"><span class="nav-icon">◉</span>Monitoring</button>
+   <button class="nav-btn nav-subitem" data-page="monitoring-history"><span class="nav-icon">◷</span>Riwayat gangguan</button>
+   <button class="nav-btn" data-page="traffic"><span class="nav-icon">⌁</span>Grafik Trafik</button>
+  </div>
+  <div class="nav-group">
+   <div class="side-label">AUDIT</div>
+   <button class="nav-btn" data-page="history"><span class="nav-icon">◷</span>Riwayat & Audit</button>
+  </div>
   <div class="side-bottom">SQLite · Self-hosted<br>RouterOS API · PWA</div>
  </aside>
  <main class="main"><header class="topbar"><div class="top-title" id="topTitle">Dashboard</div><div class="top-right"><span id="clock"></span><span class="avatar" id="avatar">A</span><span class="top-user" id="whoami">Admin</span><button class="btn btn-plain" id="logoutBtn">Keluar</button></div></header>
