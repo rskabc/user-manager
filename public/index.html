@@ -467,11 +467,18 @@ async function loadHioso(){
   $('#hiosoOnuOffline').textContent=olts.reduce((n,o)=>n+(Number(o.onu_offline)||0),0);
   $('#hiosoChecked').textContent='Diperiksa '+new Date(d.checkedAt).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
   body.innerHTML=olts.length?olts.map(o=>'<tr><td><strong>'+esc(o.name)+'</strong><small>IP key: '+esc(o.host)+'</small></td><td><span class="badge '+(o.status==='online'?'badge-green':o.status==='offline'?'badge-red':'badge-gray')+'">'+esc(o.status||'unknown')+'</span>'+(o.error?'<small>'+esc(o.error)+'</small>':'')+'</td><td>'+esc(o.sys_name||'—')+'<small>'+esc(o.sys_descr||'')+'</small></td><td>'+Number(o.onu_online||0)+'</td><td>'+Number(o.onu_offline||0)+'</td><td>'+esc(o.sampled_at||'—')+'</td><td><button class="btn btn-danger" data-delete-olt="'+o.id+'">Hapus</button></td></tr>').join(''):'<tr><td colspan="7" class="empty">Belum ada OLT terdaftar.</td></tr>';
-  try{
+  try {
    const m=await api('/integrations/ip-map');
    const mapRows=$('#ipMapRows');
-   mapRows.innerHTML=(m.entries||[]).length?(m.entries||[]).map(x=>'<tr><td><strong>'+esc(x.ip)+'</strong></td><td>'+((x.zabbix||[]).map(v=>esc(v.name)+' <small>('+esc(v.status)+')</small>').join('<br>')||'—')+'</td><td>'+((x.mikrotik||[]).map(v=>esc(v.name)).join('<br>')||'—')+'</td><td>'+((x.hioso||[]).map(v=>esc(v.name)+' <small>('+esc(v.status)+')</small>').join('<br>')||'—')+'</td></tr>').join(''):'<tr><td colspan="4" class="empty">Belum ada IP yang terdaftar dari ketiga sumber.</td></tr>');
-  }catch(e){$('#ipMapRows').innerHTML='<tr><td colspan="4" class="empty">'+esc(e.message)+'</td></tr>';}
+   const entries=m.entries||[];
+   if(!entries.length) mapRows.innerHTML='<tr><td colspan="4" class="empty">Belum ada IP yang terdaftar dari ketiga sumber.</td></tr>';
+   else mapRows.innerHTML=entries.map(x=>{
+    const names=source=>(x[source]||[]).map(v=>esc(v.name)+(source==='mikrotik'?'':' <small>('+esc(v.status)+')</small>')).join('<br>')||'—';
+    return '<tr><td><strong>'+esc(x.ip)+'</strong></td><td>'+names('zabbix')+'</td><td>'+names('mikrotik')+'</td><td>'+names('hioso')+'</td></tr>';
+   }).join('');
+  } catch(e) {
+   $('#ipMapRows').innerHTML='<tr><td colspan="4" class="empty">'+esc(e.message)+'</td></tr>';
+  }
   const onus=olts.flatMap(o=>(o.details?.onus||[]).map(u=>({...u,oltName:o.name,host:o.host})));
   const filter=($('#hiosoSearch')?.value||'').toLowerCase();
   const shown=onus.filter(u=>[u.oltName,u.host,u.name,u.serial,u.port,u.onuId].some(v=>String(v||'').toLowerCase().includes(filter)));
