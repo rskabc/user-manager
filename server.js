@@ -409,11 +409,32 @@ async function getZabbixHostIndex() {
    if(!prev||Number(item.lastclock)>Number(prev.lastclock)) pingByHost.set(item.hostid,item);
   }
   const checkedAt=Math.floor(Date.now()/1000);
+  // For hosts currently failing ICMP, inspect recent numeric history to find
+  // the start of the uninterrupted run of 0 values (offline start time).
+  const offlineItems=[...pingByHost.values()].filter(item=>item.lastvalue==='0'&&Number(item.lastclock)>0);
+  const offlineSinceByHost=new Map();
+  if(offlineItems.length){
+   try{
+    const history=await zabbixCall(c,'history.get',{output:['itemid','clock','value'],history:3,itemids:offlineItems.map(item=>item.itemid),sortfield:'clock',sortorder:'DESC',limit:10000});
+    const byItem=new Map();
+    for(const row of history){if(!byItem.has(row.itemid))byItem.set(row.itemid,[]);byItem.get(row.itemid).push(row);}
+    for(const item of offlineItems){
+     const rows=byItem.get(item.itemid)||[];
+     let start=Number(item.lastclock);
+     // API history is newest-first: walk backwards until the last successful ping.
+     for(const row of rows){
+      if(String(row.value)==='1')break;
+      if(String(row.value)==='0')start=Math.min(start,Number(row.clock));
+     }
+     offlineSinceByHost.set(item.hostid,start);
+    }
+   }catch(historyError){console.error(new Date().toISOString(),'Zabbix ICMP history:',historyError.message);}
+  }
   const indexedHosts=hosts.map(host=>{
    const ping=pingByHost.get(host.hostid);
    const fresh=ping&&Number(ping.lastclock)>0&&checkedAt-Number(ping.lastclock)<=300;
    const icmpStatus=host.status!=='0'?'disabled':!ping||!fresh?'unknown':ping.lastvalue==='1'?'available':ping.lastvalue==='0'?'unavailable':'unknown';
-   return {...host,icmpStatus,icmpLastCheck:ping?.lastclock||null};
+   return {...host,icmpStatus,icmpLastCheck:ping?.lastclock||null,icmpOfflineSince:offlineSinceByHost.get(host.hostid)||null};
   });
   zabbixHostCache={at:now,hosts:indexedHosts,error:''};
  } catch(e) { zabbixHostCache={at:now,hosts:[],error:e.message||'Zabbix tidak tersedia'}; }
@@ -432,7 +453,7 @@ function enrichCustomerWithZabbix(customer, hosts, error) {
  if(matches.length>1) return {...customer,zabbixStatus:'duplicate',zabbixHost:'',zabbixHostName:'',zabbixAvailability:'unknown',zabbixMatch:'duplicate',zabbixNote:'Lebih dari satu host cocok'};
  const h=matches[0];
  const availability=h.icmpStatus||'unknown';
- return {...customer,zabbixStatus:availability,zabbixHost:h.host||'',zabbixHostName:h.name||h.host||'',zabbixAvailability:availability,zabbixMatch:'matched',zabbixLastCheck:h.icmpLastCheck||null,zabbixNote:availability==='unknown'?'Item ICMP tidak ditemukan, belum ada data, atau data lebih lama dari 5 menit':''};
+ return {...customer,zabbixStatus:availability,zabbixHost:h.host||'',zabbixHostName:h.name||h.host||'',zabbixAvailability:availability,zabbixLastCheck:h.icmpLastCheck||null,zabbixOfflineSince:h.icmpOfflineSince||null,zabbixNote:availability==='unknown'?'Item ICMP tidak ditemukan, belum ada data, atau data lebih lama dari 5 menit':''};
 }
 app.get('/api/routers/:id/customers', auth, asyncRoute(async (req,res) => {
  const router = routerById(req.params.id);
