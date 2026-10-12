@@ -258,9 +258,7 @@ async function pollHioso(olt) {
    snmpWalk(session,'1.3.6.1.4.1.25355.3.2.6.14.2.1.4').catch(()=>[]),
    snmpWalk(session,'1.3.6.1.4.1.25355.3.2.6.14.2.1.7').catch(()=>[])
   ]);
-  const mapRows=rows=>new Map(rows.map(r=>[r.oid.slice(r.oid.lastIndexOf('.')+1),textValue(r.value)]));
   // Use full OID suffix so tables with multi-part indices remain uniquely keyed.
-  const suffixMap=rows=>new Map(rows.map(r=>[r.oid.replace(/^.*?\\.(?=\\d+\\.\\d+\\.\\d+$)/,''),textValue(r.value)]));
   const bySuffix=rows=>new Map(rows.map(r=>[r.oid.split('.').slice(-3).join('.'),textValue(r.value)]));
   const statusMap=bySuffix(statuses), nameMap=bySuffix(names), serialMap=bySuffix(serials), distanceMap=bySuffix(distances), rxMap=bySuffix(rxPower), txMap=bySuffix(txPower), tempMap=bySuffix(temperatures);
   const keys=[...new Set([...statusMap.keys(),...nameMap.keys(),...serialMap.keys()])];
