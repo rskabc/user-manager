@@ -35,6 +35,19 @@
 @media(max-width:720px){.sidebar{display:none}.main{margin-left:0;padding-bottom:68px}.topbar{height:56px;padding:0 15px}.content{padding:16px 13px}.page-head{margin-bottom:15px}.page-head h1{font-size:20px}.page-head p{font-size:12px}.cards{gap:9px;margin-bottom:13px}.stat{padding:12px;border-radius:11px}.stat-top{font-size:10px;align-items:flex-start}.stat-icon{width:25px;height:25px;font-size:12px}.stat-num{font-size:23px;margin-top:9px}.stat-foot{font-size:10px}.panel{border-radius:11px;margin-bottom:13px}.panel-head{padding:13px}.panel-body{padding:12px}.two-col{grid-template-columns:1fr;gap:0}.top-right .top-user{display:none}.mobile-nav{position:fixed;display:grid;grid-template-columns:repeat(4,1fr);bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--line);padding:5px 5px calc(5px + env(safe-area-inset-bottom));z-index:10}.mobile-nav button{border:0;background:transparent;color:#8490a4;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;font-size:10px;font-weight:700}.mobile-nav button.active{color:var(--blue)}.mobile-nav span{font-size:17px}.toolbar{width:100%}.toolbar select,.toolbar input{flex:1;min-width:0}.page-head>.btn{font-size:11px;padding:8px}.panel-head{align-items:flex-start}.modal-backdrop{padding:10px;align-items:end}.modal{border-radius:16px 16px 10px 10px;max-height:92dvh}.field{margin:10px 0}.field input,.field select{min-height:42px}.actions .btn{font-size:10px}.table-wrap{margin:0 -12px;width:calc(100% + 24px)}.table-wrap table{min-width:600px}.router-item{padding:9px}.router-info small{overflow-wrap:anywhere}.footer-note{padding-bottom:8px}}
 @media(max-width:360px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.stat-top{font-size:9px}.stat-num{font-size:21px}.content{padding-left:10px;padding-right:10px}.page-head h1{font-size:18px}}
 .chart-wrap{width:100%;min-width:0;position:relative}.chart-wrap canvas{display:block;max-width:100%}.chart-legend{display:flex;gap:16px;align-items:center;font-size:11px;color:var(--muted);margin-bottom:12px}.chart-legend span{display:flex;align-items:center;gap:6px}.chart-legend i{display:inline-block;width:9px;height:9px;border-radius:50%}.legend-up{background:#315efb}.legend-down{background:#16a36a}.muted-small{font-size:11px;color:var(--muted)}#customerSearch{min-width:190px}
+#page-customers .customer-filters{display:flex;flex-wrap:wrap;gap:7px;align-items:center;justify-content:flex-end}
+#page-customers .customer-filters select,#page-customers .customer-filters input{min-width:0;max-width:100%;height:34px;font-size:11px}
+#page-customers .customer-filters input{flex:1 1 180px}
+#page-customers .customer-pagination{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:9px 13px;border-bottom:1px solid var(--line);font-size:11px;color:var(--muted)}
+#page-customers .customer-pagination .toolbar{width:auto;gap:6px}
+#page-customers .customer-pagination .btn{padding:7px 9px;font-size:10px}
+#page-customers .customer-table td small{display:block;margin-top:3px;line-height:1.35;overflow-wrap:anywhere}
+#page-customers .customer-table .actions{display:flex;flex-wrap:wrap;gap:5px}
+#page-customers .customer-table .actions .btn{padding:6px 8px;font-size:10px;white-space:nowrap}
+#page-customers .customer-table th,#page-customers .customer-table td{vertical-align:middle}
+#page-customers .customer-table td:nth-child(3){word-break:break-word}
+@media(max-width:900px){#page-customers .panel-head{flex-wrap:wrap}#page-customers .customer-filters{justify-content:flex-start}#page-customers .customer-filters select{flex:1 1 130px}}
+@media(max-width:600px){#page-customers .content{padding:12px 10px}#page-customers .customer-pagination{align-items:flex-start;flex-direction:column}#page-customers .customer-pagination .toolbar{width:100%;justify-content:space-between}#page-customers .customer-table th{font-size:9px}#page-customers .customer-table td{font-size:10px;padding:7px 5px}}
 #page-customers .content{max-width:none;padding:16px 20px}
 #page-customers .page-head{margin-bottom:12px}
 #page-customers .page-head h1{font-size:20px}
@@ -476,19 +489,34 @@ function renderCustomers(){
   Array.from(document.querySelectorAll('#customerRows [data-test-customer]')).forEach(el=>el.onclick=()=>{const c=visible[Number(el.dataset.testCustomer)];if(c)testCustomer(c);});
  $$('.customer-check').forEach(el=>el.onchange=()=>{const key=el.dataset.key;if(el.checked)selectedCustomers.add(key);else selectedCustomers.delete(key);$('#customerSelectedCount').textContent=selectedCustomers.size+' dipilih';});
 }
+let customersLoading=false;
 async function loadCustomers(){
+ if(customersLoading)return;
+ customersLoading=true;
  const id=$('#customerRouter').value;
+ const refreshButton=$('#refreshCustomers');
+ const previousButtonText=refreshButton.textContent;
+ refreshButton.disabled=true;refreshButton.textContent='Memuat…';
+ const rows=$('#customerRows');
+ if(!customerData.length)rows.innerHTML='<tr><td colspan="9" class="empty">Mengambil data pelanggan dan status monitoring…</td></tr>';
  try{
-  if(id){customerData=await api('/routers/'+id+'/customers');}
+  let nextCustomers=[];
+  if(id){nextCustomers=await api('/routers/'+id+'/customers');}
   else{
    const results=await Promise.allSettled(routers.map(async r=>({router:r,customers:await api('/routers/'+r.id+'/customers')})));
-   customerData=results.filter(x=>x.status==='fulfilled').flatMap(x=>x.value.customers);
+   nextCustomers=results.filter(x=>x.status==='fulfilled').flatMap(x=>x.value.customers);
    const failed=results.filter(x=>x.status==='rejected').length;
-   if(!customerData.length&&failed)throw new Error('Tidak ada router yang berhasil dihubungi. Periksa koneksi API MikroTik.');
+   if(!nextCustomers.length&&failed)throw new Error('Tidak ada router yang berhasil dihubungi. Data sebelumnya dipertahankan; periksa koneksi API MikroTik.');
    if(failed)toast(failed+' router gagal diperiksa; data router lain tetap ditampilkan.',true);
   }
+  customerData=nextCustomers;
   selectedCustomers.clear();customerCurrentPage=1;renderCustomers();
- }catch(e){customerData=[];renderCustomers();$('#customerRows').innerHTML='<tr><td colspan="8" class="empty">'+esc(e.message)+' — status tidak diketahui.</td></tr>';}
+ }catch(e){
+  if(customerData.length){renderCustomers();toast((e.message||'Refresh gagal.')+' Data terakhir yang berhasil dimuat tetap ditampilkan.',true);}
+  else{rows.innerHTML='<tr><td colspan="9" class="empty">'+esc(e.message||'Gagal memuat pelanggan.')+'</td></tr>';}
+ }finally{
+  customersLoading=false;refreshButton.disabled=false;refreshButton.textContent=previousButtonText;
+ }
 }
 $('#customerRouter').onchange=loadCustomers;$('#customerSearch').oninput=()=>{customerCurrentPage=1;renderCustomers();};$('#customerZabbixFilter').onchange=()=>{customerCurrentPage=1;renderCustomers();};$('#customerPageSize').onchange=()=>{customerCurrentPage=1;renderCustomers();};$('#customerPrevPage').onclick=()=>{if(customerCurrentPage>1){customerCurrentPage--;renderCustomers();}};$('#customerNextPage').onclick=()=>{customerCurrentPage++;renderCustomers();};$('#refreshCustomers').onclick=()=>loadCustomers().then(()=>toast('Status pelanggan diperbarui.'));
 $('#selectVisible').onclick=()=>{visibleCustomers().forEach(c=>selectedCustomers.add(c.address||c.queueId));renderCustomers();};
