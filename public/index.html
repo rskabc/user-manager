@@ -123,7 +123,7 @@
     </div>
    </div>
    <div class="panel"><div class="panel-head"><div><h2>Host dari Zabbix</h2><p>Daftar host pada host group yang dikonfigurasi. Ini merupakan data monitoring dari Zabbix.</p></div></div>
-    <div class="table-wrap"><table style="min-width:600px"><thead><tr><th>Nama host</th><th>Technical name</th><th>IP / DNS</th><th>Status host</th><th>Interface</th></tr></thead><tbody id="zabbixHostRows"><tr><td colspan="5" class="empty">Konfigurasikan Zabbix lalu pilih Ambil daftar host.</td></tr></tbody></table></div>
+    <div class="table-wrap"><table style="min-width:600px"><thead><tr><th>Nama host</th><th>Technical name</th><th>IP / DNS</th><th>Status host</th><th>Status ICMP</th></tr></thead><tbody id="zabbixHostRows"><tr><td colspan="5" class="empty">Konfigurasikan Zabbix lalu pilih Ambil daftar host.</td></tr></tbody></table></div>
    </div>
   </section>
   <section id="page-routers" class="section">
@@ -219,7 +219,9 @@ async function loadZabbixHosts(){
   const d=await api('/integrations/zabbix/hosts');$('#zbxHostCount').textContent=d.count;
   $('#zbxHostGroupNote').textContent='Host group: '+d.hostgroup;
   const rows=d.hosts||[];
-  $('#zabbixHostRows').innerHTML=rows.length?rows.map(h=>'<tr><td><strong>'+esc(h.name||h.host)+'</strong></td><td>'+esc(h.host)+'</td><td>'+esc((h.interfaces||[]).map(i=>i.ip||i.dns).filter(Boolean).join(', ')||'—')+'</td><td><span class="badge '+(h.status==='enabled'?'badge-green':'badge-gray')+'">'+esc(h.status)+'</span></td><td><span class="badge '+(h.available==='available'?'badge-green':h.available==='unavailable'?'badge-red':'badge-amber')+'">'+esc(h.available)+'</span></td></tr>').join(''):'<tr><td colspan="5" class="empty">Tidak ada host pada host group ini.</td></tr>';
+  $('#zabbixHostRows').innerHTML=rows.length?rows.map(h=>{const st=h.icmpStatus||'unknown';const label=st==='connected'?'Terkoneksi':st==='disconnected'?'Terputus':st==='disabled'?'Disabled':'Unknown';const cls=st==='connected'?'badge-green':st==='disconnected'?'badge-red':st==='disabled'?'badge-gray':'badge-amber';const checked=h.icmpLastCheck?' • '+new Date(h.icmpLastCheck).toLocaleString():'';
+ return '<tr><td><strong>'+esc(h.name||h.host)+'</strong></td><td>'+esc(h.host)+'</td><td>'+esc((h.interfaces||[]).map(i=>i.ip||i.dns).filter(Boolean).join(', ')||'—')+'</td><td><span class="badge '+(h.status==='enabled'?'badge-green':'badge-gray')+'">'+esc(h.status)+'</span></td><td><span title="'+esc(checked)+'" class="badge '+cls+'">'+label+'</span></td></tr>';
+}).join(''):'<tr><td colspan="5" class="empty">Tidak ada host pada host group ini.</td></tr>';
   if(d.warning)toast(d.warning,true);else toast('Berhasil mengambil '+d.count+' host dari Zabbix.');
  }catch(e){$('#zabbixHostRows').innerHTML='<tr><td colspan="5" class="empty">'+esc(e.message)+'</td></tr>';toast(e.message,true);}
  finally{b.disabled=false;b.textContent='Ambil daftar host';}
