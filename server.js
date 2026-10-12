@@ -513,7 +513,7 @@ function enrichCustomerWithZabbix(customer, hosts, error) {
  if(matches.length>1) return {...customer,zabbixStatus:'duplicate',zabbixHost:'',zabbixHostName:'',zabbixAvailability:'unknown',zabbixMatch:'duplicate',zabbixNote:'Lebih dari satu host cocok'};
  const h=matches[0];
  const availability=h.icmpStatus||'unknown';
- return {...customer,zabbixStatus:availability,zabbixHost:h.host||'',zabbixHostName:h.name||h.host||'',zabbixAvailability:availability,zabbixLastCheck:h.icmpLastCheck||null,zabbixOfflineSince:h.icmpOfflineSince||null,zabbixNote:availability==='unknown'?'Item ICMP tidak ditemukan, belum ada data, atau data lebih lama dari 5 menit':''};
+ return {...customer,zabbixStatus:availability,zabbixHost:h.host||'',zabbixHostName:h.name||h.host||'',zabbixAvailability:availability,zabbixLastCheck:h.icmpLastCheck||null,zabbixOfflineSince:h.icmpOfflineSince||null,zabbixDownCount30d:Number(h.icmpDownCount30d)||0,zabbixNote:availability==='unknown'?'Item ICMP tidak ditemukan, belum ada data, atau data lebih lama dari 5 menit':''};
 }
 app.get('/api/routers/:id/customers', auth, asyncRoute(async (req,res) => {
  const router = routerById(req.params.id);
