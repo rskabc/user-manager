@@ -159,13 +159,27 @@ function getZabbixConfig() {
  return row ? {url:row.zabbix_url,token:row.zabbix_token_enc?decrypt(row.zabbix_token_enc):'',hostgroup:row.hostgroup||'MikroTik Queues',updatedAt:row.updated_at} : {url:'',token:'',hostgroup:'MikroTik Queues',updatedAt:null};
 }
 async function zabbixCall(config, method, params={}) {
- if (!config.url || !config.token) throw Object.assign(new Error('Konfigurasi URL dan token Zabbix belum lengkap.'),{status:400});
- const response = await fetch(config.url, {
-   method:'POST',
-   headers:{'Content-Type':'application/json-rpc','Authorization':'Bearer '+config.token},
-   body:JSON.stringify({jsonrpc:'2.0',method,params,id:1}),
-   signal:AbortSignal.timeout(10000)
- });
+ const isPublicMethod = method === 'apiinfo.version';
+ if (!config.url || (!isPublicMethod && !config.token)) {
+   throw Object.assign(new Error('Konfigurasi URL dan token Zabbix belum lengkap.'),{status:400});
+ }
+ const headers = {'Content-Type':'application/json-rpc'};
+ // Zabbix 7.2+ rejects Authorization on apiinfo.version.
+ if (!isPublicMethod) headers.Authorization = 'Bearer ' + config.token;
+ let response;
+ try {
+   response = await fetch(config.url, {
+     method:'POST',
+     headers,
+     body:JSON.stringify({jsonrpc:'2.0',method,params,id:1}),
+     signal:AbortSignal.timeout(10000)
+   });
+ } catch (error) {
+   if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+     throw new Error('Koneksi ke Zabbix timeout setelah 10 detik. Periksa URL API dan konektivitas dari container.');
+   }
+   throw new Error('Tidak dapat menjangkau Zabbix API: ' + (error.cause?.message || error.message || 'network error'));
+ }
  if (!response.ok) throw new Error('Zabbix API mengembalikan HTTP '+response.status+'.');
  const data=await response.json();
  if (data.error) throw new Error(data.error.data||data.error.message||'Zabbix API menolak permintaan.');
@@ -188,8 +202,12 @@ app.post('/api/integrations/zabbix/test',auth,asyncRoute(async(req,res)=>{
  const current=getZabbixConfig();
  const url=typeof req.body?.url==='string'&&req.body.url.trim()?req.body.url.trim().replace(/\/+$/,''):current.url;
  const token=typeof req.body?.token==='string'&&req.body.token.trim()?req.body.token.trim():current.token;
- const result=await zabbixCall({url,token},'apiinfo.version',{});
- res.json({ok:true,version:result,message:'Koneksi ke Zabbix berhasil.'});
+ if (!url) throw Object.assign(new Error('URL API Zabbix belum diisi.'),{status:400});
+ if (!token) throw Object.assign(new Error('Token API Zabbix belum diisi.'),{status:400});
+ // First check reachability/version without Authorization, then verify the token separately.
+ const version=await zabbixCall({url,token:''},'apiinfo.version',{});
+ const groups=await zabbixCall({url,token},'hostgroup.get',{output:['groupid','name'],limit:1});
+ res.json({ok:true,version,tokenValid:true,message:'Koneksi Zabbix berhasil dan token diterima.',accessibleHostgroups:groups.length});
 }));
 app.get('/api/integrations/zabbix/hosts',auth,asyncRoute(async(req,res)=>{
  const c=getZabbixConfig();
