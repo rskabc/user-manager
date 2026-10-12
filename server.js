@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const { RouterOSAPI } = require('node-routeros');
 const path = require('path');
 const fs = require('fs');
+const snmp = require('net-snmp');
 
 const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
@@ -34,6 +35,19 @@ CREATE TABLE IF NOT EXISTS integrations (
  hostgroup TEXT NOT NULL DEFAULT 'MikroTik Queues',
  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS hioso_olts (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, host TEXT NOT NULL UNIQUE,
+ port INTEGER NOT NULL DEFAULT 161, community_enc TEXT NOT NULL, version TEXT NOT NULL DEFAULT '2c',
+ enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS hioso_samples (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, olt_id INTEGER NOT NULL, host TEXT NOT NULL,
+ sys_name TEXT NOT NULL DEFAULT '', sys_descr TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'unknown',
+ onu_online INTEGER NOT NULL DEFAULT 0, onu_offline INTEGER NOT NULL DEFAULT 0, pon_count INTEGER NOT NULL DEFAULT 0,
+ details_json TEXT NOT NULL DEFAULT '{}', sampled_at TEXT NOT NULL DEFAULT (datetime('now')),
+ FOREIGN KEY(olt_id) REFERENCES hioso_olts(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_hioso_samples_time ON hioso_samples(olt_id,sampled_at DESC);
 CREATE TABLE IF NOT EXISTS routers (
  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, host TEXT NOT NULL,
  port INTEGER NOT NULL DEFAULT 8728, username TEXT NOT NULL, password_enc TEXT NOT NULL,
@@ -196,6 +210,131 @@ async function zabbixCall(config, method, params={}) {
  if (data.error) throw new Error(data.error.data||data.error.message||'Zabbix API menolak permintaan.');
  return data.result;
 }
+
+function snmpGet(session, oids) {
+ return new Promise((resolve,reject)=>session.get(oids,(error,varbinds)=>{
+  if(error) return reject(error);
+  const out={};
+  for(const vb of varbinds||[]) out[vb.oid]=snmp.isVarbindError(vb)?null:vb.value;
+  resolve(out);
+ }));
+}
+function snmpWalk(session, oid, maxRepetitions=20) {
+ return new Promise((resolve,reject)=>{
+  const rows=[];
+  session.subtree(oid,maxRepetitions,(varbinds)=>{
+   for(const vb of varbinds||[]) rows.push({oid:vb.oid,value:snmp.isVarbindError(vb)?null:vb.value});
+  },error=>error?reject(error):resolve(rows));
+ });
+}
+function withSnmp(olt, callback) {
+ return new Promise((resolve,reject)=>{
+  const session=snmp.createSession(olt.host,decrypt(olt.community_enc),{
+   port:olt.port||161,timeout:3500,retries:1,version:olt.version==='1'?snmp.Version1:snmp.Version2c
+  });
+  let closed=false;
+  const close=()=>{if(!closed){closed=true;try{session.close();}catch(_){}}};
+  Promise.resolve().then(()=>callback(session)).then(v=>{close();resolve(v)},e=>{close();reject(e)});
+ });
+}
+function textValue(value) {
+ if(Buffer.isBuffer(value)) return value.toString('utf8').replace(/\0/g,'').trim();
+ return value===undefined||value===null?'':String(value);
+}
+async function pollHioso(olt) {
+ return withSnmp(olt,async session=>{
+  const base=await snmpGet(session,['1.3.6.1.2.1.1.1.0','1.3.6.1.2.1.1.5.0','1.3.6.1.2.1.1.3.0']);
+  const descr=textValue(base['1.3.6.1.2.1.1.1.0']);
+  const sysName=textValue(base['1.3.6.1.2.1.1.5.0'])||olt.name;
+  // HIOSO private MIB (enterprise 25355). Treat ONU OIDs as best-effort:
+  // model/firmware variations may expose a different subset of these tables.
+  const root='1.3.6.1.4.1.25355.3.2.6.3.2.1.';
+  const [names,serials,statuses,distances,rxPower,txPower,temperatures]=await Promise.all([
+   snmpWalk(session,root+'37').catch(()=>[]),
+   snmpWalk(session,root+'11').catch(()=>[]),
+   snmpWalk(session,root+'39').catch(()=>[]),
+   snmpWalk(session,root+'25').catch(()=>[]),
+   snmpWalk(session,'1.3.6.1.4.1.25355.3.2.6.14.2.1.8').catch(()=>[]),
+   snmpWalk(session,'1.3.6.1.4.1.25355.3.2.6.14.2.1.4').catch(()=>[]),
+   snmpWalk(session,'1.3.6.1.4.1.25355.3.2.6.14.2.1.7').catch(()=>[])
+  ]);
+  const mapRows=rows=>new Map(rows.map(r=>[r.oid.slice(r.oid.lastIndexOf('.')+1),textValue(r.value)]));
+  // Use full OID suffix so tables with multi-part indices remain uniquely keyed.
+  const suffixMap=rows=>new Map(rows.map(r=>[r.oid.replace(/^.*?\\.(?=\\d+\\.\\d+\\.\\d+$)/,''),textValue(r.value)]));
+  const bySuffix=rows=>new Map(rows.map(r=>[r.oid.split(root).pop()||r.oid.split('.').slice(-3).join('.'),textValue(r.value)]));
+  const statusMap=bySuffix(statuses), nameMap=bySuffix(names), serialMap=bySuffix(serials), distanceMap=bySuffix(distances), rxMap=bySuffix(rxPower), txMap=bySuffix(txPower), tempMap=bySuffix(temperatures);
+  const keys=[...new Set([...statusMap.keys(),...nameMap.keys(),...serialMap.keys()])];
+  const onus=keys.map(key=>{
+   const rawStatus=statusMap.get(key);
+   const online=rawStatus==='1'||rawStatus==='online'||rawStatus==='Online';
+   const suffix=key.split('.'); 
+   return {key,port:suffix.length>=2?suffix[suffix.length-2]:'—',onuId:suffix[suffix.length-1]||'—',
+    name:nameMap.get(key)||'',serial:serialMap.get(key)||'',status:rawStatus===undefined?'unknown':online?'online':'offline',
+    distanceMeters:distanceMap.has(key)?Number(distanceMap.get(key)):null,
+    rxPowerDbm:rxMap.has(key)?Number(rxMap.get(key)):null,txPowerDbm:txMap.has(key)?Number(txMap.get(key)):null,
+    temperatureC:tempMap.has(key)?Number(tempMap.get(key)):null};
+  });
+  const online=onus.filter(x=>x.status==='online').length,offline=onus.filter(x=>x.status==='offline').length;
+  const details={onus,uptime:textValue(base['1.3.6.1.2.1.1.3.0'])};
+  return {name:sysName,descr,status:'online',onuOnline:online,onuOffline:offline,ponCount:2,details};
+ });
+}
+app.get('/api/integrations/hioso',auth,(req,res)=>{
+ const olts=db.prepare("SELECT id,name,host,port,version,enabled,created_at,updated_at FROM hioso_olts ORDER BY name").all();
+ res.json({olts:olts.map(o=>({...o,sourceKey:o.host}))});
+});
+app.post('/api/integrations/hioso',auth,(req,res)=>{
+ const {name,host,port=161,community,version='2c'}=req.body||{};
+ if(typeof name!=='string'||!name.trim()||name.length>100) return res.status(400).json({error:'Nama OLT wajib diisi (maksimal 100 karakter).'});
+ if(!validateIp(host)) return res.status(400).json({error:'IP manajemen OLT harus berupa alamat IPv4/IPv6 yang valid.'});
+ const p=Number(port);
+ if(!Number.isInteger(p)||p<1||p>65535) return res.status(400).json({error:'Port SNMP tidak valid.'});
+ if(typeof community!=='string'||community.trim().length<1||community.length>200) return res.status(400).json({error:'SNMP community wajib diisi.'});
+ if(!['1','2c'].includes(String(version))) return res.status(400).json({error:'Versi SNMP yang didukung saat ini adalah v1 atau v2c.'});
+ try {
+  const result=db.prepare("INSERT INTO hioso_olts(name,host,port,community_enc,version) VALUES(?,?,?,?,?) ON CONFLICT(host) DO UPDATE SET name=excluded.name,port=excluded.port,community_enc=excluded.community_enc,version=excluded.version,enabled=1,updated_at=datetime('now')").run(name.trim(),host.trim(),p,encrypt(community.trim()),String(version));
+  res.status(201).json({ok:true,id:Number(result.lastInsertRowid)||db.prepare('SELECT id FROM hioso_olts WHERE host=?').get(host.trim()).id,message:'Konfigurasi OLT disimpan; IP menjadi kunci integrasi.'});
+ } catch(e){throw e;}
+});
+app.delete('/api/integrations/hioso/:id',auth,(req,res)=>{
+ db.prepare('DELETE FROM hioso_olts WHERE id=?').run(Number(req.params.id));
+ res.json({ok:true});
+});
+app.post('/api/integrations/hioso/test',auth,asyncRoute(async(req,res)=>{
+ const input=req.body||{};
+ let olt;
+ if(input.id) olt=db.prepare('SELECT * FROM hioso_olts WHERE id=?').get(Number(input.id));
+ else {
+  if(!validateIp(input.host)||typeof input.community!=='string'||!input.community.trim()) throw Object.assign(new Error('IP OLT dan SNMP community wajib diisi.'),{status:400});
+  olt={name:String(input.name||'HIOSO OLT'),host:input.host.trim(),port:Number(input.port)||161,community_enc:encrypt(input.community.trim()),version:String(input.version||'2c')};
+ }
+ if(!olt) throw Object.assign(new Error('Konfigurasi OLT tidak ditemukan.'),{status:404});
+ const result=await pollHioso(olt);
+ res.json({ok:true,host:olt.host,name:result.name,sysDescr:result.descr,onuOnline:result.onuOnline,onuOffline:result.onuOffline,onuCount:result.details.onus.length,message:'Tes SNMP berhasil. Pastikan tabel ONU tersedia untuk model/firmware ini.'});
+}));
+app.get('/api/monitoring/hioso',auth,asyncRoute(async(req,res)=>{
+ const olts=db.prepare('SELECT * FROM hioso_olts WHERE enabled=1 ORDER BY name').all();
+ const result=[];
+ for(const olt of olts){
+  const latest=db.prepare('SELECT * FROM hioso_samples WHERE olt_id=? ORDER BY id DESC LIMIT 1').get(olt.id);
+  const stale=!latest||Date.now()-new Date(latest.sampled_at.replace(' ','T')+'Z').getTime()>120000;
+  let current=latest?{...latest,details:JSON.parse(latest.details_json||'{}')}:null;
+  if(stale){
+   try{
+    const p=await pollHioso(olt);
+    db.prepare("INSERT INTO hioso_samples(olt_id,host,sys_name,sys_descr,status,onu_online,onu_offline,pon_count,details_json,sampled_at) VALUES(?,?,?,?,?,?,?,?,?,datetime('now'))")
+      .run(olt.id,olt.host,p.name,p.descr,p.status,p.onuOnline,p.onuOffline,p.ponCount,JSON.stringify(p.details));
+    current={host:olt.host,sys_name:p.name,sys_descr:p.descr,status:p.status,onu_online:p.onuOnline,onu_offline:p.onuOffline,pon_count:p.ponCount,details:p.details,sampled_at:new Date().toISOString()};
+   }catch(e){
+    current=current||{host:olt.host,sys_name:olt.name,status:'unknown',onu_online:0,onu_offline:0,pon_count:2,details:{onus:[]},sampled_at:null};
+    current={...current,status:'offline',error:String(e.message||'SNMP polling gagal').slice(0,240)};
+   }
+  }
+  result.push({id:olt.id,name:olt.name,host:olt.host,sourceKey:olt.host,...current});
+ }
+ res.json({ok:true,sourceKey:'IP address',count:result.length,olts:result,checkedAt:new Date().toISOString()});
+}));
+
 app.get('/api/integrations/zabbix',auth,(req,res)=>{
  const c=getZabbixConfig();
  res.json({configured:!!(c.url&&c.token),url:c.url,hostgroup:c.hostgroup,tokenConfigured:!!c.token,updatedAt:c.updatedAt});
