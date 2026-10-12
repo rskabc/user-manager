@@ -400,8 +400,22 @@ async function getZabbixHostIndex() {
   if(!c.url||!c.token) throw new Error('Zabbix belum dikonfigurasi');
   const groups=await zabbixCall(c,'hostgroup.get',{output:['groupid','name'],filter:{name:[c.hostgroup]}});
   if(!groups.length) throw new Error('Host group tidak ditemukan');
-  const hosts=await zabbixCall(c,'host.get',{output:['hostid','host','name','status'],groupids:groups.map(g=>g.groupid),selectInterfaces:['ip','dns','available','type']});
-  zabbixHostCache={at:now,hosts,error:''};
+  const hosts=await zabbixCall(c,'host.get',{output:['hostid','host','name','status'],groupids:groups.map(g=>g.groupid),selectInterfaces:['ip','dns','type']});
+  const pingItems=hosts.length?await zabbixCall(c,'item.get',{output:['itemid','hostid','key_','lastvalue','lastclock','status','state'],hostids:hosts.map(x=>x.hostid),filter:{key_:['icmpping']}}):[];
+  const pingByHost=new Map();
+  for(const item of pingItems){
+   if(item.status==='1'||item.state==='1') continue;
+   const prev=pingByHost.get(item.hostid);
+   if(!prev||Number(item.lastclock)>Number(prev.lastclock)) pingByHost.set(item.hostid,item);
+  }
+  const checkedAt=Math.floor(Date.now()/1000);
+  const indexedHosts=hosts.map(host=>{
+   const ping=pingByHost.get(host.hostid);
+   const fresh=ping&&Number(ping.lastclock)>0&&checkedAt-Number(ping.lastclock)<=300;
+   const icmpStatus=host.status!=='0'?'disabled':!ping||!fresh?'unknown':ping.lastvalue==='1'?'available':ping.lastvalue==='0'?'unavailable':'unknown';
+   return {...host,icmpStatus,icmpLastCheck:ping?.lastclock||null};
+  });
+  zabbixHostCache={at:now,hosts:indexedHosts,error:''};
  } catch(e) { zabbixHostCache={at:now,hosts:[],error:e.message||'Zabbix tidak tersedia'}; }
  return zabbixHostCache;
 }
@@ -416,9 +430,9 @@ function enrichCustomerWithZabbix(customer, hosts, error) {
  if(error) return {...customer,zabbixStatus:'unavailable',zabbixHost:'',zabbixHostName:'',zabbixAvailability:'unknown',zabbixMatch:'unavailable',zabbixNote:error};
  if(matches.length===0) return {...customer,zabbixStatus:'unmatched',zabbixHost:'',zabbixHostName:'',zabbixAvailability:'unknown',zabbixMatch:'unmatched',zabbixNote:'Tidak ditemukan di Zabbix'};
  if(matches.length>1) return {...customer,zabbixStatus:'duplicate',zabbixHost:'',zabbixHostName:'',zabbixAvailability:'unknown',zabbixMatch:'duplicate',zabbixNote:'Lebih dari satu host cocok'};
- const h=matches[0], interfaces=h.interfaces||[];
- const availability=interfaces.some(i=>i.available==='1')?'available':interfaces.some(i=>i.available==='2')?'unavailable':'unknown';
- return {...customer,zabbixStatus:h.status==='0'?(availability==='available'?'available':availability==='unavailable'?'unavailable':'unknown'):'disabled',zabbixHost:h.host||'',zabbixHostName:h.name||h.host||'',zabbixAvailability:availability,zabbixMatch:'matched',zabbixNote:''};
+ const h=matches[0];
+ const availability=h.icmpStatus||'unknown';
+ return {...customer,zabbixStatus:availability,zabbixHost:h.host||'',zabbixHostName:h.name||h.host||'',zabbixAvailability:availability,zabbixMatch:'matched',zabbixLastCheck:h.icmpLastCheck||null,zabbixNote:availability==='unknown'?'Item ICMP tidak ditemukan, belum ada data, atau data lebih lama dari 5 menit':''};
 }
 app.get('/api/routers/:id/customers', auth, asyncRoute(async (req,res) => {
  const router = routerById(req.params.id);
