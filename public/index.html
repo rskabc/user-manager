@@ -192,7 +192,15 @@
 
 .customer-filters{display:flex;flex-wrap:wrap;gap:7px;align-items:center}.customer-filters select,.customer-filters input{min-width:130px;max-width:210px;height:34px;font-size:11px;padding:6px 9px}.customer-filters #customerSearch{min-width:170px;flex:1 1 170px}.customer-pagination{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border);font-size:11px;color:var(--muted)}.customer-pagination .toolbar{display:flex;align-items:center;gap:7px}.customer-pagination .btn{padding:6px 9px;min-height:28px;font-size:10px}.customer-pagination button:disabled{opacity:.4;cursor:not-allowed}@media(max-width:760px){.customer-filters select,.customer-filters input{min-width:0;max-width:none;flex:1 1 42%}.customer-filters #customerSearch{min-width:100%}.customer-pagination{align-items:flex-start;flex-direction:column}.customer-pagination .toolbar{width:100%;justify-content:space-between}}
 
-.zabbix-offline-state{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:120px}.zabbix-offline-state small{font-size:9px;line-height:1.35;color:var(--muted);white-space:normal}
+
+ .monitoring-analysis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+ .monitoring-analysis-item{border:1px solid var(--border);border-radius:10px;padding:12px;min-width:0}
+ .monitoring-analysis-item.critical{border-left:3px solid #dc2626}.monitoring-analysis-item.warning{border-left:3px solid #d97706}.monitoring-analysis-item.info{border-left:3px solid #94a3b8}
+ .monitoring-analysis-item>div{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap}
+ .monitoring-analysis-item strong{font-size:12px}.monitoring-analysis-item small{display:block;color:var(--muted);font-size:10px;margin-top:3px}
+ .monitoring-analysis-item p{font-size:11px;line-height:1.5;margin:9px 0 0;overflow-wrap:anywhere}
+ @media(max-width:720px){.monitoring-analysis{grid-template-columns:minmax(0,1fr)}#page-monitoring .page-head h1{font-size:19px}#page-monitoring .table-wrap table{min-width:680px}}
+ .zabbix-offline-state{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:120px}.zabbix-offline-state small{font-size:9px;line-height:1.35;color:var(--muted);white-space:normal}
 .router-item-expanded{align-items:flex-start}.router-item-expanded .router-info{min-width:0;flex:1}.router-zabbix-summary{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px}.router-down-list{margin-top:8px;border-top:1px solid var(--border,#e5eaf2);padding-top:5px}.router-down-row{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--border,#e5eaf2)}.router-down-row:last-child{border-bottom:0}.router-down-row>span{display:flex;flex-direction:column;gap:3px;min-width:0}.router-down-row strong{font-size:12px;overflow-wrap:anywhere}.router-down-row small{font-size:11px;color:var(--muted,#64748b)}.router-down-row>span:last-child{text-align:right;white-space:nowrap}
 </style>
 </head>
@@ -211,6 +219,7 @@
   <button class="nav-btn" data-page="routers"><span class="nav-icon">⌘</span>Router MikroTik</button>
   <button class="nav-btn" data-page="zabbix"><span class="nav-icon">◉</span>Integrasi Zabbix</button>
   <button class="nav-btn" data-page="customers"><span class="nav-icon">◎</span>Pelanggan</button>
+  <button class="nav-btn" data-page="monitoring"><span class="nav-icon">◉</span>Monitoring</button>
   <button class="nav-btn" data-page="traffic"><span class="nav-icon">⌁</span>Grafik Trafik</button>
   <button class="nav-btn" data-page="isolation"><span class="nav-icon">⊘</span>Isolasi Pelanggan</button>
   <button class="nav-btn" data-page="history"><span class="nav-icon">◷</span>Riwayat & Audit</button>
@@ -301,6 +310,14 @@
    <p class="hero-note">Retensi data grafik: 31 hari. Periode tanpa sampel tidak akan ditampilkan. Angka merupakan rata-rata sampel rate queue, bukan total kuota transfer.</p>
   </section>
 
+  <section id="page-monitoring" class="section">
+   <div class="page-head"><div><h1>Monitoring Pelanggan</h1><p>Status ICMP real-time, riwayat gangguan, dan analisis otomatis berbasis data Zabbix.</p></div><button class="btn btn-primary" id="refreshMonitoring">↻ Refresh</button></div>
+   <div class="cards"><div class="stat"><div class="stat-top">Host dipantau</div><div class="stat-num" id="monitoredTotal">—</div><div class="stat-foot">Host pada group Zabbix</div></div><div class="stat"><div class="stat-top">Terkoneksi</div><div class="stat-num" id="monitoredUp">—</div><div class="stat-foot">ICMP terakhir merespons</div></div><div class="stat"><div class="stat-top">Sedang terputus</div><div class="stat-num" id="monitoredDown">—</div><div class="stat-foot">Gangguan ICMP aktif</div></div><div class="stat"><div class="stat-top">Gangguan 30 hari</div><div class="stat-num" id="monitoredEvents">—</div><div class="stat-foot">Peristiwa down yang terekam</div></div></div>
+   <div class="notice" id="monitoringNotice">Status dan riwayat diambil dari Zabbix. Analisis merupakan indikasi awal, bukan diagnosis pasti penyebab gangguan.</div>
+   <div class="panel"><div class="panel-head"><div><h2>A. Monitoring pelanggan real-time</h2><p>Daftar host yang saat ini tidak merespons ICMP.</p></div><div class="toolbar"><select id="monitoringDownFilter"><option value="">Semua durasi</option><option value="short">Di bawah 10 menit</option><option value="medium">10–59 menit</option><option value="long">60 menit atau lebih</option></select></div></div><div class="table-wrap"><table><thead><tr><th>Pelanggan / Host</th><th>IP Address</th><th>Terputus sejak</th><th>Durasi</th><th>Down 30 hari</th><th>Status</th></tr></thead><tbody id="monitoringDownRows"><tr><td colspan="6" class="empty">Memuat status Zabbix…</td></tr></tbody></table></div></div>
+   <div class="panel"><div class="panel-head"><div><h2>B. Riwayat gangguan pelanggan</h2><p>Transisi ICMP down dan pemulihan yang diamati aplikasi.</p></div><div class="toolbar"><select id="monitoringHistoryFilter"><option value="">Semua peristiwa</option><option value="down">Terputus</option><option value="recovered">Pulih</option></select><select id="monitoringHistoryLimit"><option value="50">50 peristiwa</option><option value="100" selected>100 peristiwa</option><option value="300">300 peristiwa</option><option value="500">500 peristiwa</option></select></div></div><div class="table-wrap"><table><thead><tr><th>Waktu mulai</th><th>Host</th><th>IP Address</th><th>Peristiwa</th><th>Waktu pulih</th><th>Durasi</th></tr></thead><tbody id="monitoringHistoryRows"><tr><td colspan="6" class="empty">Memuat riwayat gangguan…</td></tr></tbody></table></div></div>
+   <div class="panel"><div class="panel-head"><div><h2>C. Analisis otomatis gangguan</h2><p>Prioritas dan langkah pemeriksaan awal berdasarkan durasi gangguan.</p></div></div><div class="panel-body"><div id="monitoringAnalysis" class="monitoring-analysis"><div class="empty">Menganalisis gangguan aktif…</div></div></div></div>
+  </section>
   <section id="page-isolation" class="section">
    <div class="page-head"><div><h1>Isolasi pelanggan</h1><p>Blokir atau pulihkan akses melalui firewall address-list khusus aplikasi.</p></div><button class="btn btn-primary" id="isolateBtn">⊘ Isolasi pelanggan</button></div>
    <div class="notice"><strong>Konfigurasi firewall wajib:</strong> aplikasi menambahkan IP ke address-list <code id="listName">USER_MANAGER_ISOLATED</code>. Agar internet benar-benar terblokir, siapkan rule firewall filter yang menjatuhkan trafik pelanggan pada list tersebut. Aplikasi tidak mengubah atau menghapus rule firewall yang sudah ada.</div>
@@ -312,13 +329,13 @@
   </section>
  </div>
  </main>
- <nav class="mobile-nav"><button class="active" data-page="dashboard"><span>▦</span>Dashboard</button><button data-page="customers"><span>◎</span>Pelanggan</button><button data-page="traffic"><span>⌁</span>Trafik</button><button data-page="isolation"><span>⊘</span>Isolasi</button></nav>
+ <nav class="mobile-nav"><button class="active" data-page="dashboard"><span>▦</span>Dashboard</button><button data-page="customers"><span>◎</span>Pelanggan</button><button data-page="monitoring"><span>◉</span>Monitoring</button><button data-page="traffic"><span>⌁</span>Trafik</button><button data-page="isolation"><span>⊘</span>Isolasi</button></nav>
 </div>
 <div id="modalRoot"></div><div id="toast" class="toast hidden"></div>
 <script>
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 let token=localStorage.getItem('um_token')||sessionStorage.getItem('um_token')||'', routers=[], lastDashboard=null, lastHistory=[], currentQueues=[], toastTimer;
-const titles={dashboard:'Dashboard',routers:'Router MikroTik',zabbix:'Integrasi Zabbix',queues:'Manajemen Pelanggan',customers:'Manajemen Pelanggan',traffic:'Grafik Trafik',isolation:'Isolasi Pelanggan',history:'Riwayat & Audit'};
+const titles={monitoring:'Monitoring Pelanggan',dashboard:'Dashboard',routers:'Router MikroTik',zabbix:'Integrasi Zabbix',queues:'Manajemen Pelanggan',customers:'Manajemen Pelanggan',traffic:'Grafik Trafik',isolation:'Isolasi Pelanggan',history:'Riwayat & Audit'};
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function toast(msg,bad=false){const el=$('#toast');el.textContent=msg;el.style.background=bad?'#a72b2b':'#17243b';el.classList.remove('hidden');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.add('hidden'),3500);}
 async function api(url,opts={}){const res=await fetch('/api'+url,{...opts,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{}),...(opts.headers||{})}});let data={};try{data=await res.json()}catch{}if(res.status===401){logout();throw Error(data.error||'Sesi berakhir.')}if(!res.ok)throw Error(data.error||'Permintaan gagal');return data;}
@@ -375,9 +392,31 @@ $('#refreshZabbix').addEventListener('click',loadZabbixConfig);
 $('#loadZabbixHosts').addEventListener('click',loadZabbixHosts);
 
 function startApp(user){$('#loginView').classList.add('hidden');$('#appView').classList.remove('hidden');$('#whoami').textContent=user.username;$('#avatar').textContent=user.username.slice(0,1).toUpperCase();navigate('dashboard');refreshAll();}
-function navigate(page){if(page==='queues')page='customers';Array.from(document.querySelectorAll('[data-page]')).forEach(b=>b.classList.toggle('active',b.dataset.page===page));$$('.section').forEach(s=>s.classList.toggle('active',s.id==='page-'+page));$('#topTitle').textContent=titles[page]||'Dashboard';if(page==='routers')loadRouters();if(page==='zabbix')loadZabbixConfig();if(page==='queues'){loadRouters().then(()=>{fillRouterSelects();loadQueues()})}if(page==='customers'){loadRouters().then(()=>{fillRouterSelects();loadCustomers()})}if(page==='traffic'){loadRouters().then(()=>{fillRouterSelects();loadTrafficHistory()})}if(page==='isolation'){loadRouters().then(fillRouterSelects);loadIsolations()}if(page==='history')loadHistory();}
+function navigate(page){if(page==='queues')page='customers';Array.from(document.querySelectorAll('[data-page]')).forEach(b=>b.classList.toggle('active',b.dataset.page===page));$$('.section').forEach(s=>s.classList.toggle('active',s.id==='page-'+page));$('#topTitle').textContent=titles[page]||'Dashboard';if(page==='routers')loadRouters();if(page==='zabbix')loadZabbixConfig();if(page==='queues'){loadRouters().then(()=>{fillRouterSelects();loadQueues()})}if(page==='customers'){loadRouters().then(()=>{fillRouterSelects();loadCustomers()})}if(page==='traffic'){loadRouters().then(()=>{fillRouterSelects();loadTrafficHistory()})}if(page==='isolation'){loadRouters().then(fillRouterSelects);loadIsolations()}if(page==='history')loadHistory();if(page==='monitoring')loadMonitoring();}
 $$('[data-page]').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.page)));
 $$('[data-goto]').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.goto)));
+let monitoringData={currentDown:[],history:[],analysis:[]};
+function fmtDuration(minutes){if(minutes===null||minutes===undefined)return '—';const m=Math.max(0,Number(minutes));if(m<60)return m+' mnt';const h=Math.floor(m/60),r=m%60;return h+' jam'+(r?' '+r+' mnt':'');}
+function fmtMonitoringTime(s){if(!s)return '—';const d=new Date(String(s).replace(' ','T')+'Z');return Number.isNaN(d.getTime())?'—':d.toLocaleString('id-ID',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false});}
+function renderMonitoring(){
+ const f=$('#monitoringDownFilter')?.value||'';
+ const down=monitoringData.currentDown.filter(x=>!f||(f==='short'&&x.durationMinutes<10)||(f==='medium'&&x.durationMinutes>=10&&x.durationMinutes<60)||(f==='long'&&x.durationMinutes>=60));
+ $('#monitoringDownRows').innerHTML=down.length?down.map(x=>'<tr><td><strong>'+esc(x.name)+'</strong></td><td>'+esc(x.ip||'—')+'</td><td>'+fmtMonitoringTime(x.since)+'</td><td>'+fmtDuration(x.durationMinutes)+'</td><td>'+esc(x.downCount30d)+'</td><td><span class="badge badge-red">Terputus</span></td></tr>').join(''):'<tr><td colspan="6" class="empty">Tidak ada pelanggan down untuk filter ini.</td></tr>';
+ const action=$('#monitoringHistoryFilter')?.value||'',limit=Number($('#monitoringHistoryLimit')?.value||100),hist=monitoringData.history.filter(x=>!action||x.status===action).slice(0,limit);
+ $('#monitoringHistoryRows').innerHTML=hist.length?hist.map(x=>'<tr><td>'+fmtMonitoringTime(x.started_at)+'</td><td><strong>'+esc(x.host_name)+'</strong></td><td>'+esc(x.ip_address||'—')+'</td><td>'+(x.status==='down'?'<span class="badge badge-red">Terputus</span>':'<span class="badge badge-green">Pulih</span>')+'</td><td>'+fmtMonitoringTime(x.ended_at)+'</td><td>'+fmtDuration(x.duration_seconds===null?null:Math.round(Number(x.duration_seconds)/60))+'</td></tr>').join(''):'<tr><td colspan="6" class="empty">Belum ada riwayat gangguan yang terekam.</td></tr>';
+ const a=monitoringData.analysis||[];
+ $('#monitoringAnalysis').innerHTML=a.length?a.map(x=>'<article class="monitoring-analysis-item '+esc(x.level)+'"><div><strong>'+esc(x.name)+'</strong><small>'+esc(x.ip||'IP tidak tersedia')+'</small></div><span class="badge '+(x.level==='critical'?'badge-red':x.level==='warning'?'badge-amber':'badge-gray')+'">'+(x.level==='critical'?'Prioritas tinggi':x.level==='warning'?'Perlu diperiksa':'Baru terdeteksi')+'</span><p><b>Temuan:</b> '+esc(x.finding)+'</p><p><b>Rekomendasi:</b> '+esc(x.recommendation)+'</p></article>').join(''):'<div class="empty">Tidak ada gangguan aktif yang perlu dianalisis.</div>';
+}
+async function loadMonitoring(){
+ const b=$('#refreshMonitoring');if(b){b.disabled=true;b.textContent='Memuat…';}
+ try{const d=await api('/monitoring/outages?limit='+encodeURIComponent($('#monitoringHistoryLimit')?.value||100));monitoringData=d;
+ $('#monitoredTotal').textContent=d.summary?.monitored??0;$('#monitoredUp').textContent=d.summary?.up??0;$('#monitoredDown').textContent=d.summary?.down??0;$('#monitoredEvents').textContent=d.summary?.downEvents30d??0;
+ $('#monitoringNotice').textContent=d.warning?'Zabbix belum dapat dibaca: '+d.warning:'Pembaruan terakhir '+new Date(d.checkedAt).toLocaleString('id-ID')+'. Analisis adalah indikasi awal berbasis ICMP dan durasi, bukan diagnosis penyebab yang pasti.';renderMonitoring();
+ }catch(e){$('#monitoringNotice').textContent='Gagal mengambil data monitoring: '+e.message;$('#monitoringDownRows').innerHTML='<tr><td colspan="6" class="empty">'+esc(e.message)+'</td></tr>';toast(e.message,true);}
+ finally{if(b){b.disabled=false;b.textContent='↻ Refresh';}}
+}
+$('#refreshMonitoring').onclick=loadMonitoring;$('#monitoringDownFilter').onchange=renderMonitoring;$('#monitoringHistoryFilter').onchange=renderMonitoring;$('#monitoringHistoryLimit').onchange=loadMonitoring;
+setInterval(()=>{if(token&&$('#page-monitoring').classList.contains('active'))loadMonitoring();},30000);
 function fmtDate(s){if(!s)return '—';const d=new Date(s.replace(' ','T')+'Z');return isNaN(d)?esc(s):d.toLocaleString('id-ID',{dateStyle:'medium',timeStyle:'short'});}
 function statusBadge(ok){return ok?'<span class="badge badge-green">Online</span>':'<span class="badge badge-red">Offline</span>';}
 function actionBadge(a){return a==='isolate'?'<span class="badge badge-red">Isolasi</span>':'<span class="badge badge-green">Pemulihan</span>';}
