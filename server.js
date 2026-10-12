@@ -196,6 +196,8 @@ app.put('/api/integrations/zabbix',auth,(req,res)=>{
  if(typeof hostgroup!=='string'||hostgroup.trim().length>200) return res.status(400).json({error:'Nama host group tidak valid.'});
  db.prepare("INSERT INTO integrations(id,zabbix_url,zabbix_token_enc,hostgroup,updated_at) VALUES(1,?,?,?,datetime('now')) ON CONFLICT(id) DO UPDATE SET zabbix_url=excluded.zabbix_url,zabbix_token_enc=excluded.zabbix_token_enc,hostgroup=excluded.hostgroup,updated_at=datetime('now')")
   .run(url.trim().replace(/\/+$/,'') ,encrypt(token.trim()),hostgroup.trim()||'MikroTik Queues');
+ // Do not keep host/status data from the previous Zabbix configuration.
+ zabbixHostCache={at:0,hosts:[],error:''};
  res.json({ok:true,message:'Konfigurasi Zabbix disimpan terenkripsi.'});
 });
 app.post('/api/integrations/zabbix/test',auth,asyncRoute(async(req,res)=>{
