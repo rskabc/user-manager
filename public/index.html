@@ -105,6 +105,8 @@
  .panel-head .toolbar select{max-width:58vw}
 }
 .customer-connection{display:flex;flex-direction:column;align-items:flex-start;gap:4px}.customer-connection small{font-size:10px;line-height:1.3;color:var(--muted);overflow-wrap:anywhere}
+
+.customer-filters{display:flex;flex-wrap:wrap;gap:7px;align-items:center}.customer-filters select,.customer-filters input{min-width:130px;max-width:210px;height:34px;font-size:11px;padding:6px 9px}.customer-filters #customerSearch{min-width:170px;flex:1 1 170px}.customer-pagination{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border);font-size:11px;color:var(--muted)}.customer-pagination .toolbar{display:flex;align-items:center;gap:7px}.customer-pagination .btn{padding:6px 9px;min-height:28px;font-size:10px}.customer-pagination button:disabled{opacity:.4;cursor:not-allowed}@media(max-width:760px){.customer-filters select,.customer-filters input{min-width:0;max-width:none;flex:1 1 42%}.customer-filters #customerSearch{min-width:100%}.customer-pagination{align-items:flex-start;flex-direction:column}.customer-pagination .toolbar{width:100%;justify-content:space-between}}
 </style>
 </head>
 <body>
@@ -180,9 +182,9 @@
     <div class="stat"><div class="stat-top">Nonaktif</div><div class="stat-num" id="customerDisabled">0</div><div class="stat-foot">Simple Queue dinonaktifkan</div></div>
    </div>
    <div class="panel">
-    <div class="panel-head"><div><h2>Daftar pelanggan</h2><p>Pilih pelanggan untuk isolasi atau pemulihan massal. Gunakan tombol Test hanya saat diperlukan.</p></div><div class="toolbar"><select id="customerRouter"><option value="">Semua router</option></select><input id="customerSearch" type="search" placeholder="Cari nama, IP, username, queue…" aria-label="Cari pelanggan"><button class="btn btn-plain" id="selectVisible">Pilih hasil</button></div></div>
+    <div class="panel-head"><div><h2>Daftar pelanggan</h2><p>Pilih pelanggan untuk isolasi atau pemulihan massal. Gunakan tombol Test hanya saat diperlukan.</p></div><div class="toolbar customer-filters"><select id="customerRouter" aria-label="Filter router"><option value="">Semua router</option></select><select id="customerZabbixFilter" aria-label="Filter status Zabbix"><option value="">Semua status Zabbix</option><option value="available">Online</option><option value="unavailable">Terputus</option><option value="unknown">Unknown</option><option value="unmatched">Belum cocok</option><option value="disabled">Host nonaktif</option><option value="unavailable_config">Zabbix tidak tersedia</option></select><select id="customerPageSize" aria-label="Jumlah pelanggan per halaman"><option value="100">100 per halaman</option><option value="300">300 per halaman</option><option value="500">500 per halaman</option><option value="all">Semua</option></select><input id="customerSearch" type="search" placeholder="Cari nama, IP, queue…" aria-label="Cari pelanggan"><button class="btn btn-plain" id="selectVisible">Pilih hasil</button></div></div>
     <div class="panel-head"><div class="toolbar"><span id="customerSelectedCount">0 dipilih</span><input id="bulkReason" placeholder="Alasan tindakan (opsional)"><button class="btn btn-danger" id="bulkIsolate">⊘ Isolasi pilihan</button><button class="btn btn-soft" id="bulkRestore">Pulihkan pilihan</button></div></div>
-    <div class="table-wrap"><table class="customer-table"><thead><tr><th><input type="checkbox" id="selectAllCustomers" aria-label="Pilih semua"></th><th>Pelanggan / Queue</th><th>IP / Target</th><th>Status</th><th>Monitoring Zabbix</th><th>Upload</th><th>Download</th><th>Limit</th><th>Aksi</th></tr></thead><tbody id="customerRows"><tr><td colspan="9" class="empty">Pilih router untuk memuat pelanggan.</td></tr></tbody></table></div>
+    <div class="customer-pagination"><span id="customerPageInfo">Menampilkan 0 pelanggan</span><div class="toolbar"><button class="btn btn-plain" id="customerPrevPage" disabled>← Sebelumnya</button><span id="customerPageNumber">Halaman 1</span><button class="btn btn-plain" id="customerNextPage" disabled>Berikutnya →</button></div></div><div class="table-wrap"><table class="customer-table"><thead><tr><th><input type="checkbox" id="selectAllCustomers" aria-label="Pilih semua"></th><th>Pelanggan / Queue</th><th>IP / Target</th><th>Status</th><th>Monitoring Zabbix</th><th>Upload</th><th>Download</th><th>Limit</th><th>Aksi</th></tr></thead><tbody id="customerRows"><tr><td colspan="9" class="empty">Pilih router untuk memuat pelanggan.</td></tr></tbody></table></div>
    </div>
    <p class="hero-note">Status “Gangguan / Tidak diketahui” ditampilkan saat router tidak dapat diperiksa. Aplikasi tidak menyimpulkan pelanggan offline hanya dari tidak adanya trafik.</p>
   <div id="queueManagementPanel" class="panel">
@@ -320,9 +322,21 @@ function zabbixCustomerBadge(c){
  if(c.zabbixStatus==='disabled')return '<span class="badge badge-gray" title="'+esc(c.zabbixHostName||'')+'">Host nonaktif</span>';
  return '<span class="badge badge-amber" title="'+esc(c.zabbixHostName||'')+'">Status unknown</span>';
 }
-function visibleCustomers(){const q=($('#customerSearch').value||'').trim().toLowerCase();return customerData.filter(c=>!(/internet[- ]exchange/i.test(String(c.name||''))||/internet[- ]exchange/i.test(String(c.queueId||'')))).filter(c=>!q||[c.name,c.target,c.address,c.queueId,c.routerName].some(v=>String(v||'').toLowerCase().includes(q)));}
+let customerCurrentPage=1;
+function visibleCustomers(){
+ const q=($('#customerSearch').value||'').trim().toLowerCase(),zf=$('#customerZabbixFilter').value;
+ return customerData.filter(c=>!(/internet[- ]exchange/i.test(String(c.name||''))||/internet[- ]exchange/i.test(String(c.queueId||''))))
+ .filter(c=>!q||[c.name,c.target,c.address,c.queueId,c.routerName].some(v=>String(v||'').toLowerCase().includes(q)))
+ .filter(c=>!zf||(zf==='unavailable_config'?c.zabbixMatch==='unavailable':zf==='unmatched'?c.zabbixMatch==='unmatched':c.zabbixStatus===zf));
+}
 function renderCustomers(){
- const rows=$('#customerRows'), visible=visibleCustomers();
+ const rows=$('#customerRows'), filtered=visibleCustomers();
+ const pageSize=$('#customerPageSize').value, size=pageSize==='all'?Math.max(filtered.length,1):Number(pageSize);
+ const pageCount=Math.max(1,Math.ceil(filtered.length/size));customerCurrentPage=Math.min(customerCurrentPage,pageCount);
+ const start=(customerCurrentPage-1)*size, visible=filtered.slice(start,start+size);
+ $('#customerPageInfo').textContent=filtered.length?('Menampilkan '+(start+1)+'–'+Math.min(start+visible.length,filtered.length)+' dari '+filtered.length+' pelanggan'):'Menampilkan 0 pelanggan';
+ $('#customerPageNumber').textContent='Halaman '+customerCurrentPage+' / '+pageCount;
+ $('#customerPrevPage').disabled=customerCurrentPage<=1;$('#customerNextPage').disabled=customerCurrentPage>=pageCount;
  const counts={total:customerData.length,active:customerData.filter(c=>c.status==='active').length,isolated:customerData.filter(c=>c.status==='isolated').length,disabled:customerData.filter(c=>c.status==='disabled').length};
  $('#customerTotal').textContent=counts.total;$('#customerActive').textContent=counts.active;$('#customerIsolated').textContent=counts.isolated;$('#customerDisabled').textContent=counts.disabled;
  $('#customerSelectedCount').textContent=selectedCustomers.size+' dipilih';
@@ -343,10 +357,10 @@ async function loadCustomers(){
    if(!customerData.length&&failed)throw new Error('Tidak ada router yang berhasil dihubungi. Periksa koneksi API MikroTik.');
    if(failed)toast(failed+' router gagal diperiksa; data router lain tetap ditampilkan.',true);
   }
-  selectedCustomers.clear();renderCustomers();
+  selectedCustomers.clear();customerCurrentPage=1;renderCustomers();
  }catch(e){customerData=[];renderCustomers();$('#customerRows').innerHTML='<tr><td colspan="8" class="empty">'+esc(e.message)+' — status tidak diketahui.</td></tr>';}
 }
-$('#customerRouter').onchange=loadCustomers;$('#customerSearch').oninput=renderCustomers;$('#refreshCustomers').onclick=()=>loadCustomers().then(()=>toast('Status pelanggan diperbarui.'));
+$('#customerRouter').onchange=loadCustomers;$('#customerSearch').oninput=()=>{customerCurrentPage=1;renderCustomers();};$('#customerZabbixFilter').onchange=()=>{customerCurrentPage=1;renderCustomers();};$('#customerPageSize').onchange=()=>{customerCurrentPage=1;renderCustomers();};$('#customerPrevPage').onclick=()=>{if(customerCurrentPage>1){customerCurrentPage--;renderCustomers();}};$('#customerNextPage').onclick=()=>{customerCurrentPage++;renderCustomers();};$('#refreshCustomers').onclick=()=>loadCustomers().then(()=>toast('Status pelanggan diperbarui.'));
 $('#selectVisible').onclick=()=>{visibleCustomers().forEach(c=>selectedCustomers.add(c.address||c.queueId));renderCustomers();};
 $('#selectAllCustomers').onchange=e=>{if(e.target.checked)visibleCustomers().forEach(c=>selectedCustomers.add(c.address||c.queueId));else visibleCustomers().forEach(c=>selectedCustomers.delete(c.address||c.queueId));renderCustomers();};
 window.customerAction=async(address,name,action)=>{
