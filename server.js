@@ -261,7 +261,7 @@ async function pollHioso(olt) {
   const mapRows=rows=>new Map(rows.map(r=>[r.oid.slice(r.oid.lastIndexOf('.')+1),textValue(r.value)]));
   // Use full OID suffix so tables with multi-part indices remain uniquely keyed.
   const suffixMap=rows=>new Map(rows.map(r=>[r.oid.replace(/^.*?\\.(?=\\d+\\.\\d+\\.\\d+$)/,''),textValue(r.value)]));
-  const bySuffix=rows=>new Map(rows.map(r=>[r.oid.split(root).pop()||r.oid.split('.').slice(-3).join('.'),textValue(r.value)]));
+  const bySuffix=rows=>new Map(rows.map(r=>[r.oid.split('.').slice(-3).join('.'),textValue(r.value)]));
   const statusMap=bySuffix(statuses), nameMap=bySuffix(names), serialMap=bySuffix(serials), distanceMap=bySuffix(distances), rxMap=bySuffix(rxPower), txMap=bySuffix(txPower), tempMap=bySuffix(temperatures);
   const keys=[...new Set([...statusMap.keys(),...nameMap.keys(),...serialMap.keys()])];
   const onus=keys.map(key=>{
@@ -279,6 +279,28 @@ async function pollHioso(olt) {
   return {name:sysName,descr,status:'online',onuOnline:online,onuOffline:offline,ponCount:2,details};
  });
 }
+
+app.get('/api/integrations/ip-map',auth,asyncRoute(async(req,res)=>{
+ const entries=new Map();
+ const add=(ip,source,name,status='unknown')=>{
+  if(!ip||!validateIp(String(ip)))return;
+  const key=String(ip);
+  if(!entries.has(key))entries.set(key,{ip:key,sourceKey:key,zabbix:[],mikrotik:[],hioso:[]});
+  const row=entries.get(key);
+  if(!row[source].some(x=>x.name===name))row[source].push({name,status});
+ };
+ for(const r of db.prepare('SELECT name,host FROM routers ORDER BY name').all())add(r.host,'mikrotik',r.name,'configured');
+ for(const o of db.prepare('SELECT name,host,enabled FROM hioso_olts ORDER BY name').all())add(o.host,'hioso',o.name,o.enabled?'configured':'disabled');
+ try{
+  const zbx=await getZabbixHostIndex();
+  for(const h of zbx.hosts||[]){
+   const ip=(h.interfaces||[]).map(i=>i.ip).find(x=>x&&validateIp(x));
+   if(ip)add(ip,'zabbix',h.name||h.host,h.icmpStatus||'unknown');
+  }
+ }catch(e){return res.json({sourceKey:'IP address',warning:'Data Zabbix tidak tersedia: '+String(e.message||'API error'),entries:[...entries.values()].sort((a,b)=>a.ip.localeCompare(b.ip))});}
+ res.json({sourceKey:'IP address',entries:[...entries.values()].sort((a,b)=>a.ip.localeCompare(b.ip))});
+});
+
 app.get('/api/integrations/hioso',auth,(req,res)=>{
  const olts=db.prepare("SELECT id,name,host,port,version,enabled,created_at,updated_at FROM hioso_olts ORDER BY name").all();
  res.json({olts:olts.map(o=>({...o,sourceKey:o.host}))});
