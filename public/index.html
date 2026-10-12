@@ -233,6 +233,7 @@
    <div class="side-label">INFRASTRUKTUR</div>
    <button class="nav-btn" data-page="routers"><span class="nav-icon">⌘</span>Router MikroTik</button>
    <button class="nav-btn" data-page="zabbix"><span class="nav-icon">◉</span>Integrasi Zabbix</button>
+   <button class="nav-btn" data-page="hioso"><span class="nav-icon">⌁</span>Monitoring HIOSO OLT</button>
   </div>
   <div class="nav-group">
    <div class="side-label">PELANGGAN & LAYANAN</div>
@@ -301,6 +302,37 @@
     <div class="table-wrap"><table style="min-width:520px"><thead><tr><th>Nama host</th><th>IP Address</th><th>Status host</th><th>Status ICMP</th></tr></thead><tbody id="zabbixHostRows"><tr><td colspan="4" class="empty">Konfigurasikan Zabbix lalu pilih Ambil daftar host.</td></tr></tbody></table></div>
    </div>
   </section>
+  
+  <section id="page-hioso" class="section">
+   <div class="page-head"><div><h1>Monitoring HIOSO OLT</h1><p>Integrasi SNMP langsung untuk EPON Management System / HA7302CSM.</p></div><button class="btn btn-primary" id="refreshHioso">↻ Refresh monitoring</button></div>
+   <div class="notice">IP address adalah kunci utama integrasi lintas sumber: IP manajemen OLT HIOSO, IP host/interface Zabbix, dan IP host MikroTik. Password/community disimpan terenkripsi di SQLite. Jangan membuka SNMP ke internet; batasi akses UDP/161 hanya dari server User Manager.</div>
+   <div class="cards">
+    <div class="stat"><div class="stat-top">OLT terdaftar</div><div class="stat-num" id="hiosoTotal">0</div><div class="stat-foot">Konfigurasi tersimpan</div></div>
+    <div class="stat"><div class="stat-top">OLT online</div><div class="stat-num" id="hiosoOnline">0</div><div class="stat-foot">Tes SNMP berhasil</div></div>
+    <div class="stat"><div class="stat-top">ONU online</div><div class="stat-num" id="hiosoOnuOnline">—</div><div class="stat-foot">Berdasarkan OID yang terbaca</div></div>
+    <div class="stat"><div class="stat-top">ONU offline</div><div class="stat-num" id="hiosoOnuOffline">—</div><div class="stat-foot">Berdasarkan OID yang terbaca</div></div>
+   </div>
+   <div class="panel"><div class="panel-head"><div><h2>Tambah / perbarui OLT</h2><p>Gunakan IP manajemen yang dapat dijangkau dari container.</p></div></div>
+    <div class="panel-body">
+     <div class="form-grid">
+      <div class="field"><label for="hiosoName">Nama OLT</label><input id="hiosoName" value="HIOSO HA7302CSM" maxlength="100"></div>
+      <div class="field"><label for="hiosoIp">IP manajemen OLT (key)</label><input id="hiosoIp" placeholder="192.168.1.10" inputmode="decimal"></div>
+      <div class="field"><label for="hiosoPort">Port SNMP</label><input id="hiosoPort" type="number" value="161" min="1" max="65535"></div>
+      <div class="field"><label for="hiosoVersion">Versi SNMP</label><select id="hiosoVersion"><option value="2c">SNMP v2c</option><option value="1">SNMP v1</option></select></div>
+      <div class="field"><label for="hiosoCommunity">SNMP community</label><input id="hiosoCommunity" type="password" autocomplete="new-password" placeholder="Masukkan community read-only"></div>
+     </div>
+     <div class="toolbar"><button class="btn btn-primary" id="saveHioso">Simpan OLT</button><button class="btn btn-soft" id="testHioso">Tes SNMP</button></div>
+     <p class="muted-small" id="hiosoFormNote">Community tidak ditampilkan kembali setelah disimpan. Gunakan community read-only.</p>
+    </div>
+   </div>
+   <div class="panel"><div class="panel-head"><div><h2>Perangkat OLT</h2><p>Status dan ringkasan ONU terkini.</p></div><span class="badge badge-gray" id="hiosoChecked">Belum diperiksa</span></div>
+    <div class="table-wrap"><table><thead><tr><th>OLT / IP key</th><th>Status SNMP</th><th>Identitas perangkat</th><th>ONU online</th><th>ONU offline</th><th>Polling</th><th>Aksi</th></tr></thead><tbody id="hiosoRows"><tr><td colspan="7" class="empty">Belum ada OLT. Tambahkan konfigurasi di atas.</td></tr></tbody></table></div>
+   </div>
+   <div class="panel"><div class="panel-head"><div><h2>ONU yang terdeteksi</h2><p>Optical power dan serial number muncul jika OID tersedia di firmware perangkat.</p></div><input id="hiosoSearch" placeholder="Cari nama / serial / PON" style="max-width:230px"></div>
+    <div class="table-wrap"><table><thead><tr><th>OLT</th><th>IP key</th><th>PON / ONU</th><th>Nama</th><th>Serial number</th><th>Status</th><th>RX (dBm)</th><th>Jarak</th></tr></thead><tbody id="hiosoOnuRows"><tr><td colspan="8" class="empty">Belum ada data ONU.</td></tr></tbody></table></div>
+   </div>
+  </section>
+
   <section id="page-routers" class="section">
    <div class="page-head"><div><h1>Router MikroTik</h1><p>Kelola koneksi RouterOS API dengan kredensial tersimpan terenkripsi.</p></div><button class="btn btn-primary" id="addRouterBtn">＋ Tambah router</button></div>
    <div class="notice">Aktifkan RouterOS API pada router dan batasi aksesnya hanya dari IP server aplikasi. Gunakan akun khusus dengan hak minimum yang diperlukan; jangan buka port API ke internet publik.</div>
@@ -364,7 +396,7 @@
 <script>
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 let token=localStorage.getItem('um_token')||sessionStorage.getItem('um_token')||'', routers=[], lastDashboard=null, lastHistory=[], currentQueues=[], toastTimer;
-const titles={monitoring:'Monitoring Pelanggan','monitoring-history':'Riwayat Gangguan Pelanggan',dashboard:'Dashboard',routers:'Router MikroTik',zabbix:'Integrasi Zabbix',queues:'Manajemen Pelanggan',customers:'Manajemen Pelanggan',traffic:'Grafik Trafik',isolation:'Isolasi Pelanggan',history:'Riwayat & Audit'};
+const titles={monitoring:'Monitoring Pelanggan','monitoring-history':'Riwayat Gangguan Pelanggan',dashboard:'Dashboard',routers:'Router MikroTik',zabbix:'Integrasi Zabbix',hioso:'Monitoring HIOSO OLT',queues:'Manajemen Pelanggan',customers:'Manajemen Pelanggan',traffic:'Grafik Trafik',isolation:'Isolasi Pelanggan',history:'Riwayat & Audit'};
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function toast(msg,bad=false){const el=$('#toast');el.textContent=msg;el.style.background=bad?'#a72b2b':'#17243b';el.classList.remove('hidden');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.add('hidden'),3500);}
 async function api(url,opts={}){const res=await fetch('/api'+url,{...opts,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{}),...(opts.headers||{})}});let data={};try{data=await res.json()}catch{}if(res.status===401){logout();throw Error(data.error||'Sesi berakhir.')}if(!res.ok)throw Error(data.error||'Permintaan gagal');return data;}
@@ -420,8 +452,50 @@ $('#testZabbix').addEventListener('click',testZabbix);
 $('#refreshZabbix').addEventListener('click',loadZabbixConfig);
 $('#loadZabbixHosts').addEventListener('click',loadZabbixHosts);
 
+
+async function loadHioso(){
+ const body=$('#hiosoRows'), onuBody=$('#hiosoOnuRows');
+ try{
+  const d=await api('/monitoring/hioso');
+  const olts=d.olts||[];
+  $('#hiosoTotal').textContent=olts.length;
+  $('#hiosoOnline').textContent=olts.filter(o=>o.status==='online').length;
+  $('#hiosoOnuOnline').textContent=olts.reduce((n,o)=>n+(Number(o.onu_online)||0),0);
+  $('#hiosoOnuOffline').textContent=olts.reduce((n,o)=>n+(Number(o.onu_offline)||0),0);
+  $('#hiosoChecked').textContent='Diperiksa '+new Date(d.checkedAt).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
+  body.innerHTML=olts.length?olts.map(o=>'<tr><td><strong>'+esc(o.name)+'</strong><small>IP key: '+esc(o.host)+'</small></td><td><span class="badge '+(o.status==='online'?'badge-green':o.status==='offline'?'badge-red':'badge-gray')+'">'+esc(o.status||'unknown')+'</span>'+(o.error?'<small>'+esc(o.error)+'</small>':'')+'</td><td>'+esc(o.sys_name||'—')+'<small>'+esc(o.sys_descr||'')+'</small></td><td>'+Number(o.onu_online||0)+'</td><td>'+Number(o.onu_offline||0)+'</td><td>'+esc(o.sampled_at||'—')+'</td><td><button class="btn btn-danger" data-delete-olt="'+o.id+'">Hapus</button></td></tr>').join(''):'<tr><td colspan="7" class="empty">Belum ada OLT terdaftar.</td></tr>';
+  const onus=olts.flatMap(o=>(o.details?.onus||[]).map(u=>({...u,oltName:o.name,host:o.host})));
+  const filter=($('#hiosoSearch')?.value||'').toLowerCase();
+  const shown=onus.filter(u=>[u.oltName,u.host,u.name,u.serial,u.port,u.onuId].some(v=>String(v||'').toLowerCase().includes(filter)));
+  onuBody.innerHTML=shown.length?shown.map(u=>'<tr><td>'+esc(u.oltName)+'</td><td>'+esc(u.host)+'</td><td>PON '+esc(u.port)+' / ONU '+esc(u.onuId)+'</td><td>'+esc(u.name||'—')+'</td><td>'+esc(u.serial||'—')+'</td><td><span class="badge '+(u.status==='online'?'badge-green':u.status==='offline'?'badge-red':'badge-gray')+'">'+esc(u.status)+'</span></td><td>'+(Number.isFinite(u.rxPowerDbm)?u.rxPowerDbm.toFixed(2):'—')+'</td><td>'+(Number.isFinite(u.distanceMeters)?u.distanceMeters+' m':'—')+'</td></tr>').join(''):'<tr><td colspan="8" class="empty">Tidak ada tabel ONU yang terbaca atau data sesuai pencarian.</td></tr>';
+  $('[data-delete-olt]').forEach(b=>b.onclick=async()=>{if(!confirm('Hapus konfigurasi OLT ini? Riwayat sampel terkait ikut terhapus.'))return;try{await api('/integrations/hioso/'+b.dataset.deleteOlt,{method:'DELETE'});await loadHioso();toast('Konfigurasi OLT dihapus.')}catch(e){toast(e.message,true)}});
+ }catch(e){body.innerHTML='<tr><td colspan="7" class="empty">'+esc(e.message)+'</td></tr>';toast(e.message,true);}
+}
+async function saveHioso(){
+ const payload={name:$('#hiosoName').value.trim(),host:$('#hiosoIp').value.trim(),port:Number($('#hiosoPort').value)||161,version:$('#hiosoVersion').value,community:$('#hiosoCommunity').value};
+ await api('/integrations/hioso',{method:'POST',body:JSON.stringify(payload)});
+ $('#hiosoCommunity').value='';
+ $('#hiosoFormNote').textContent='Konfigurasi tersimpan. IP '+payload.host+' menjadi kunci integrasi.';
+ toast('Konfigurasi HIOSO disimpan terenkripsi.');
+ await loadHioso();
+}
+async function testHioso(){
+ const b=$('#testHioso');b.disabled=true;b.textContent='Menguji…';
+ try{
+  const payload={name:$('#hiosoName').value.trim(),host:$('#hiosoIp').value.trim(),port:Number($('#hiosoPort').value)||161,version:$('#hiosoVersion').value,community:$('#hiosoCommunity').value};
+  const d=await api('/integrations/hioso/test',{method:'POST',body:JSON.stringify(payload)});
+  toast('SNMP berhasil: '+d.name+' ('+d.host+'), ONU terbaca '+d.onuCount);
+  $('#hiosoFormNote').textContent=d.message+' Deskripsi: '+(d.sysDescr||'tidak tersedia');
+ }catch(e){toast(e.message,true);$('#hiosoFormNote').textContent=e.message;}
+ finally{b.disabled=false;b.textContent='Tes SNMP';}
+}
+$('#saveHioso').addEventListener('click',async()=>{try{await saveHioso()}catch(e){toast(e.message,true)}});
+$('#testHioso').addEventListener('click',testHioso);
+$('#refreshHioso').addEventListener('click',loadHioso);
+$('#hiosoSearch').addEventListener('input',()=>loadHioso());
+
 function startApp(user){$('#loginView').classList.add('hidden');$('#appView').classList.remove('hidden');$('#whoami').textContent=user.username;$('#avatar').textContent=user.username.slice(0,1).toUpperCase();navigate('dashboard');refreshAll();}
-function navigate(page){if(page==='queues')page='customers';Array.from(document.querySelectorAll('[data-page]')).forEach(b=>b.classList.toggle('active',b.dataset.page===page));$$('.section').forEach(s=>s.classList.toggle('active',s.id==='page-'+page));$('#topTitle').textContent=titles[page]||'Dashboard';if(page==='routers')loadRouters();if(page==='zabbix')loadZabbixConfig();if(page==='queues'){loadRouters().then(()=>{fillRouterSelects();loadQueues()})}if(page==='customers'){loadRouters().then(()=>{fillRouterSelects();loadCustomers()})}if(page==='traffic'){loadRouters().then(()=>{fillRouterSelects();loadTrafficHistory()})}if(page==='isolation'){loadRouters().then(fillRouterSelects);loadIsolations()}if(page==='history')loadHistory();if(page==='monitoring')loadMonitoring();if(page==='monitoring-history')loadMonitoring();}
+function navigate(page){if(page==='queues')page='customers';Array.from(document.querySelectorAll('[data-page]')).forEach(b=>b.classList.toggle('active',b.dataset.page===page));$$('.section').forEach(s=>s.classList.toggle('active',s.id==='page-'+page));$('#topTitle').textContent=titles[page]||'Dashboard';if(page==='routers')loadRouters();if(page==='zabbix')loadZabbixConfig();if(page==='hioso')loadHioso();if(page==='queues'){loadRouters().then(()=>{fillRouterSelects();loadQueues()})}if(page==='customers'){loadRouters().then(()=>{fillRouterSelects();loadCustomers()})}if(page==='traffic'){loadRouters().then(()=>{fillRouterSelects();loadTrafficHistory()})}if(page==='isolation'){loadRouters().then(fillRouterSelects);loadIsolations()}if(page==='history')loadHistory();if(page==='monitoring')loadMonitoring();if(page==='monitoring-history')loadMonitoring();}
 $$('[data-page]').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.page)));
 $$('[data-goto]').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.goto)));
 let monitoringData={currentDown:[],history:[],analysis:[]};
